@@ -82,6 +82,8 @@
         <div class="page-header">
           <h1 class="page-title">Statistics</h1>
         </div>
+
+        <!-- Summary Cards -->
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-number">{{ statsData.total || 0 }}</div>
@@ -96,14 +98,115 @@
             <div class="stat-label">With Video</div>
           </div>
           <div class="stat-card">
+            <div class="stat-number">{{ statsData.withNotes || 0 }}</div>
+            <div class="stat-label">Articles/Notes</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">{{ statsData.topAuthors?.length || 0 }}</div>
+            <div class="stat-label">Unique Authors</div>
+          </div>
+          <div class="stat-card">
             <div class="stat-number">{{ statsData.uncategorized || 0 }}</div>
             <div class="stat-label">Uncategorized</div>
           </div>
         </div>
 
-        <!-- Timeline Chart -->
+        <!-- GitHub-style Contribution Heatmap -->
+        <div v-if="statsData.heatmap" class="stats-section">
+          <h3>Bookmark Activity (Last 12 months)</h3>
+          <div class="heatmap-container">
+            <div class="heatmap-months">
+              <span v-for="m in statsData.heatmap.months" :key="m.label" :style="{ left: m.offset + 'px' }">{{ m.label }}</span>
+            </div>
+            <div class="heatmap-grid">
+              <div class="heatmap-days-label">
+                <span>Mon</span>
+                <span>Wed</span>
+                <span>Fri</span>
+              </div>
+              <div class="heatmap-weeks">
+                <div v-for="(week, wi) in statsData.heatmap.weeks" :key="wi" class="heatmap-week">
+                  <div
+                    v-for="(day, di) in week"
+                    :key="di"
+                    class="heatmap-cell"
+                    :class="'level-' + day.level"
+                    :title="day.date + ': ' + day.count + ' bookmarks'"
+                  ></div>
+                </div>
+              </div>
+            </div>
+            <div class="heatmap-legend">
+              <span>Less</span>
+              <div class="heatmap-cell level-0"></div>
+              <div class="heatmap-cell level-1"></div>
+              <div class="heatmap-cell level-2"></div>
+              <div class="heatmap-cell level-3"></div>
+              <div class="heatmap-cell level-4"></div>
+              <span>More</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Activity Line Chart -->
+        <div v-if="statsData.lineChart?.points?.length > 1" class="stats-section">
+          <h3>Weekly Trend</h3>
+          <div class="line-chart-container">
+            <svg class="line-chart-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="lineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.3"/>
+                  <stop offset="100%" stop-color="var(--accent)" stop-opacity="0.02"/>
+                </linearGradient>
+              </defs>
+              <!-- Area fill -->
+              <path :d="statsData.lineChart.areaPath" fill="url(#lineGradient)" />
+              <!-- Line -->
+              <path :d="statsData.lineChart.linePath" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+              <!-- Points -->
+              <circle v-for="(p, i) in statsData.lineChart.points" :key="i" :cx="p.x" :cy="p.y" r="3" fill="var(--accent)">
+                <title>{{ p.label }}: {{ p.value }}</title>
+              </circle>
+            </svg>
+            <div class="line-chart-labels">
+              <span v-for="(label, i) in statsData.lineChart.xLabels" :key="i">{{ label }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hour of Day Distribution -->
+        <div v-if="statsData.hourDistribution?.length" class="stats-section">
+          <h3>Bookmarking by Hour of Day</h3>
+          <div class="hour-chart">
+            <div
+              v-for="h in statsData.hourDistribution"
+              :key="h.hour"
+              class="hour-bar-wrapper"
+              :title="h.hour + ':00 - ' + h.count + ' bookmarks'"
+            >
+              <div class="hour-bar" :style="{ height: (h.count / statsData.maxHourCount * 100) + '%' }"></div>
+              <span class="hour-label">{{ h.hour }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Day of Week Distribution -->
+        <div v-if="statsData.dayOfWeekDistribution?.length" class="stats-section">
+          <h3>Bookmarking by Day of Week</h3>
+          <div class="dow-chart">
+            <div v-for="d in statsData.dayOfWeekDistribution" :key="d.day" class="dow-item">
+              <span class="dow-label">{{ d.dayName }}</span>
+              <div class="dow-bar-container">
+                <div class="dow-bar" :style="{ width: (d.count / statsData.maxDowCount * 100) + '%' }"></div>
+              </div>
+              <span class="dow-count">{{ d.count }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bar Chart: Bookmarks per Day (last 30 days) -->
         <div v-if="statsData.timeline?.length" class="stats-section">
-          <h3>Bookmarks per Day (Last 30 days)</h3>
+          <h3>Daily Activity (Last 30 days)</h3>
           <div class="timeline-chart">
             <div
               v-for="day in statsData.timeline"

@@ -225,6 +225,7 @@ async function fetchBookmarksPage(tabId, cursor = null) {
 // ============================================
 
 let _loggedQuotedTweet = false;
+let _loggedSortIndex = false;
 
 function parseTweetData(tweetResult) {
   if (!tweetResult) return null;
@@ -386,6 +387,15 @@ function parseBookmarksResponse(data) {
               continue;
             }
 
+            // Debug: log first few sortIndex values to diagnose bookmarkedAt
+            if (!_loggedSortIndex && entry.sortIndex) {
+              const sv = BigInt(entry.sortIndex);
+              const asMs = Number(sv);
+              const asSnowflake = Number((sv >> 22n) + 1288834974657n);
+              console.log(`[XBS] sortIndex debug: raw=${entry.sortIndex}, asMs=${new Date(asMs).toISOString()}, asSnowflake=${new Date(asSnowflake).toISOString()}`);
+              _loggedSortIndex = true;
+            }
+
             // Single tweet entry
             if (entry.content?.itemContent) {
               const ic = entry.content.itemContent;
@@ -393,12 +403,19 @@ function parseBookmarksResponse(data) {
               if (tr) {
                 const parsed = parseTweetData(tr);
                 if (parsed) {
-                  // Try to extract bookmarkedAt from sortIndex (Twitter Snowflake ID)
+                  // Try to extract bookmarkedAt from sortIndex
                   if (entry.sortIndex) {
                     try {
-                      const snowflake = BigInt(entry.sortIndex);
-                      const ts = Number((snowflake >> 22n) + 1288834974657n);
-                      if (ts > 1e12 && ts < 2e12) {
+                      const sortVal = BigInt(entry.sortIndex);
+                      let ts;
+                      // If sortIndex is in millisecond range (13 digits: 1e12 to 2e12), use directly
+                      if (sortVal > 1000000000000n && sortVal < 2000000000000n) {
+                        ts = Number(sortVal);
+                      } else if (sortVal > 1000000000000000n) {
+                        // Snowflake-like ID: extract timestamp
+                        ts = Number((sortVal >> 22n) + 1288834974657n);
+                      }
+                      if (ts && ts > 1400000000000 && ts < 2000000000000) {
                         parsed.bookmarkedAt = new Date(ts).toISOString();
                       }
                     } catch {}
@@ -419,9 +436,14 @@ function parseBookmarksResponse(data) {
                     if (parsed) {
                       if (item.item?.sortIndex) {
                         try {
-                          const snowflake = BigInt(item.item.sortIndex);
-                          const ts = Number((snowflake >> 22n) + 1288834974657n);
-                          if (ts > 1e12 && ts < 2e12) {
+                          const sortVal = BigInt(item.item.sortIndex);
+                          let ts;
+                          if (sortVal > 1000000000000n && sortVal < 2000000000000n) {
+                            ts = Number(sortVal);
+                          } else if (sortVal > 1000000000000000n) {
+                            ts = Number((sortVal >> 22n) + 1288834974657n);
+                          }
+                          if (ts && ts > 1400000000000 && ts < 2000000000000) {
                             parsed.bookmarkedAt = new Date(ts).toISOString();
                           }
                         } catch {}

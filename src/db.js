@@ -367,7 +367,7 @@ class BookmarkDB extends Dexie {
   async getStats() {
     const allBookmarks = await this.bookmarks.toArray();
     const total = allBookmarks.length;
-    if (total === 0) return { total: 0, authors: [], categories: [], tags: [], timeline: [], topAuthors: [] };
+    if (total === 0) return { total: 0, topAuthors: [], categories: [], tags: [], timeline: [], heatmap: null, lineChart: null, hourDistribution: [], dayOfWeekDistribution: [] };
 
     // Top authors
     const authorMap = {};
@@ -383,22 +383,23 @@ class BookmarkDB extends Dexie {
     let uncategorized = 0;
     for (const b of allBookmarks) {
       if (!b.categories || b.categories.length === 0) { uncategorized++; continue; }
-      for (const c of b.categories) {
-        catMap[c] = (catMap[c] || 0) + 1;
-      }
+      for (const c of b.categories) catMap[c] = (catMap[c] || 0) + 1;
     }
     const categoryStats = Object.entries(catMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
 
     // Tag distribution
     const tagMap = {};
     for (const b of allBookmarks) {
-      for (const t of (b.tags || [])) {
-        tagMap[t] = (tagMap[t] || 0) + 1;
-      }
+      for (const t of (b.tags || [])) tagMap[t] = (tagMap[t] || 0) + 1;
     }
     const tagStats = Object.entries(tagMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
 
-    // Timeline (bookmarks per day, last 30 days)
+    // Media stats
+    const withMedia = allBookmarks.filter(b => b.mediaUrls?.length > 0).length;
+    const withVideo = allBookmarks.filter(b => b.videoUrls?.length > 0).length;
+    const withNotes = allBookmarks.filter(b => b.noteText).length;
+
+    // --- Timeline (last 30 days) ---
     const now = Date.now();
     const thirtyDaysAgo = now - 30 * 86400000;
     const dayMap = {};
@@ -411,10 +412,112 @@ class BookmarkDB extends Dexie {
     }
     const timeline = Object.entries(dayMap).map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Media stats
-    const withMedia = allBookmarks.filter(b => b.mediaUrls?.length > 0).length;
-    const withVideo = allBookmarks.filter(b => b.videoUrls?.length > 0).length;
-    const withNotes = allBookmarks.filter(b => b.noteText).length;
+    // --- GitHub-style Heatmap (last 52 weeks / ~365 days) ---
+    const oneYearAgo = now - 365 * 86400000;
+    const heatmapDayMap = {};
+    for (const b of allBookmarks) {
+      const ts = new Date(b.bookmarkedAt || b.createdAt).getTime();
+      if (ts >= oneYearAgo) {
+        const day = new Date(ts).toISOString().split('T')[0];
+        heatmapDayMap[day] = (heatmapDayMap[day] || 0) + 1;
+      }
+    }
+
+    // Build 52 weeks grid (7 days each)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayDay = today.getDay(); // 0=Sun
+    // Start from the Sunday 52 weeks ago
+    const startDate = new Date(today);
+    startDate.setDate(startDate.getDate() - (52 * 7 + todayDay));
+
+    const weeks = [];
+    const monthLabels = [];
+    let lastMonth = -1;
+    const allCounts = Object.values(heatmapDayMap);
+    const maxCount = Math.max(...allCounts, 1);
+    // Quantile thresholds for levels
+    const q1 = Math.ceil(maxCount * 0.25);
+    const q2 = Math.ceil(maxCount * 0.5);
+    const q3 = Math.ceil(maxCount * 0.75);
+
+    for (let w = 0; w < 53; w++) {
+      const week = [];
+      for (let d = 0; d < 7; d++) {
+        const date = new Date(startDate);
+        date.setDate(startDate.getDate() + w * 7 + d);
+        const dateStr = date.toISOString().split('T')[0];
+        const count = heatmapDayMap[dateStr] || 0;
+        let level = 0;
+        if (count > 0) level = count <= q1 ? 1 : count <= q2 ? 2 : count <= q3 ? 3 : 4;
+        week.push({ date: dateStr, count, level });
+
+        // Track month changes for labels
+        if (d === 0 && date.getMonth() !== lastMonth) {
+          lastMonth = date.getMonth();
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          monthLabels.push({ label: monthNames[lastMonth], offset: w * 14 });
+        }
+      }
+      weeks.push(week);
+    }
+
+    const heatmap = { weeks, months: monthLabels };
+
+    // --- Hour of Day Distribution ---
+    const hourCounts = new Array(24).fill(0);
+    for (const b of allBookmarks) {
+      const ts = new Date(b.bookmarkedAt || b.createdAt);
+      if (!isNaN(ts.getTime())) hourCounts[ts.getHours()]++;
+    }
+    const maxHourCount = Math.max(...hourCounts, 1);
+    const hourDistribution = hourCounts.map((count, hour) => ({ hour, count }));
+
+    // --- Day of Week Distribution ---
+    const dowCounts = new Array(7).fill(0);
+    for (const b of allBookmarks) {
+      const ts = new Date(b.bookmarkedAt || b.createdAt);
+      if (!isNaN(ts.getTime())) dowCounts[ts.getDay()]++;
+    }
+    const maxDowCount = Math.max(...dowCounts, 1);
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayOfWeekDistribution = dowCounts.map((count, day) => ({ day, dayName: dayNames[day], count }));
+
+    // --- Line Chart (weekly aggregates, last 12 weeks) ---
+    const weekMap = {};
+    const twelveWeeksAgo = now - 12 * 7 * 86400000;
+    for (const b of allBookmarks) {
+      const ts = new Date(b.bookmarkedAt || b.createdAt).getTime();
+      if (ts >= twelveWeeksAgo) {
+        // Get ISO week start (Monday)
+        const d = new Date(ts);
+        const dayOfWeek = d.getDay() || 7;
+        d.setDate(d.getDate() - dayOfWeek + 1);
+        const weekKey = d.toISOString().split('T')[0];
+        weekMap[weekKey] = (weekMap[weekKey] || 0) + 1;
+      }
+    }
+    const weekEntries = Object.entries(weekMap).sort((a, b) => a[0].localeCompare(b[0]));
+    const maxWeekCount = Math.max(...weekEntries.map(e => e[1]), 1);
+
+    let lineChart = null;
+    if (weekEntries.length > 1) {
+      const width = 800;
+      const height = 200;
+      const padding = 20;
+      const points = weekEntries.map(([date, count], i) => ({
+        x: padding + (i / (weekEntries.length - 1)) * (width - 2 * padding),
+        y: height - padding - (count / maxWeekCount) * (height - 2 * padding),
+        value: count,
+        label: date,
+      }));
+
+      const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+      const areaPath = linePath + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
+      const xLabels = weekEntries.map(e => e[0].slice(5)); // MM-DD format
+
+      lineChart = { points, linePath, areaPath, xLabels };
+    }
 
     return {
       total,
@@ -426,6 +529,12 @@ class BookmarkDB extends Dexie {
       categories: categoryStats,
       tags: tagStats,
       timeline,
+      heatmap,
+      hourDistribution,
+      maxHourCount,
+      dayOfWeekDistribution,
+      maxDowCount,
+      lineChart,
     };
   }
 
