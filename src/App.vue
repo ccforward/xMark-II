@@ -79,7 +79,7 @@
       <!-- Bookmark List -->
       <div v-if="bookmarks.length > 0" class="bookmark-list">
         <div v-for="bm in bookmarks" :key="bm.id" class="bookmark-item">
-          <div class="bookmark-checkbox">
+          <div class="bookmark-checkbox" :class="{ checked: selectedIds.has(bm.id) }">
             <input type="checkbox" :checked="selectedIds.has(bm.id)" @change="toggleSelect(bm.id)" />
           </div>
           <a :href="'https://x.com/' + (bm.authorHandle || '_')" target="_blank" class="avatar-link">
@@ -324,13 +324,12 @@ function formatDate(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return dateStr
-  const now = new Date()
-  const diff = now - d
-  if (diff < 60000) return 'just now'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`
-  if (diff < 604800000) return `${Math.floor(diff / 86400000)}d`
-  return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
+  let hours = d.getHours()
+  const minutes = d.getMinutes().toString().padStart(2, '0')
+  const ampm = hours >= 12 ? 'pm' : 'am'
+  hours = hours % 12 || 12
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return `${hours}:${minutes} ${ampm} · ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
 }
 
 function truncateText(text, maxLen) {
@@ -358,7 +357,15 @@ function getMediaItems(bm) {
 
   for (let i = 0; i < mediaUrls.length; i++) {
     const type = mediaTypes[i] || 'photo'
-    const item = { thumbnail: mediaUrls[i], type, url: mediaUrls[i] }
+    const thumbUrl = mediaUrls[i]
+    // Build high-res URL for lightbox
+    let highResUrl = thumbUrl
+    if (type === 'photo' && thumbUrl.includes('pbs.twimg.com')) {
+      // Use original quality: ?format=jpg&name=4096x4096
+      const base = thumbUrl.split('?')[0]
+      highResUrl = base + '?format=jpg&name=4096x4096'
+    }
+    const item = { thumbnail: thumbUrl, type, url: highResUrl }
     if (type === 'video' || type === 'animated_gif') {
       item.videoUrl = videoUrls[videoIdx] || ''
       videoIdx++
