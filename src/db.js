@@ -3,20 +3,32 @@
 import Dexie from 'dexie';
 
 const DB_NAME = 'XBookmarkSync';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 class BookmarkDB extends Dexie {
   constructor() {
     super(DB_NAME);
 
-    this.version(DB_VERSION).stores({
+    this.version(2).stores({
       bookmarks: '++id, tweetId, authorHandle, createdAt, bookmarkedAt, *categories',
       categories: '++id, &name',
       syncState: 'key'
     });
 
+    this.version(3).stores({
+      bookmarks: '++id, tweetId, authorHandle, createdAt, bookmarkedAt, *categories, *tags',
+      categories: '++id, &name',
+      tags: '++id, &name',
+      collections: '++id, &name, createdAt',
+      cachedMedia: '&url',
+      syncState: 'key'
+    });
+
     this.bookmarks = this.table('bookmarks');
     this.categories = this.table('categories');
+    this.tags = this.table('tags');
+    this.collections = this.table('collections');
+    this.cachedMedia = this.table('cachedMedia');
     this.syncState = this.table('syncState');
   }
 
@@ -58,7 +70,7 @@ class BookmarkDB extends Dexie {
     return results;
   }
 
-  async getBookmarks({ offset = 0, limit = 50, category = null, search = null, sort = 'bookmarkedAt', order = 'desc' } = {}) {
+  async getBookmarks({ offset = 0, limit = 50, category = null, search = null, sort = 'bookmarkedAt', order = 'desc', tag = null, collectionId = null, dateFrom = null, dateTo = null, author = null, hasMedia = null, hasVideo = null } = {}) {
     let collection = this.bookmarks.orderBy(sort);
 
     if (order === 'desc') {
@@ -75,6 +87,38 @@ class BookmarkDB extends Dexie {
       }
     }
 
+    if (tag) {
+      results = results.filter(b => b.tags?.includes(tag));
+    }
+
+    if (collectionId) {
+      const col = await this.collections.get(collectionId);
+      if (col?.bookmarkIds) {
+        const idSet = new Set(col.bookmarkIds);
+        results = results.filter(b => idSet.has(b.id));
+      }
+    }
+
+    // Advanced filters
+    if (dateFrom) {
+      const from = new Date(dateFrom).getTime();
+      results = results.filter(b => new Date(b.bookmarkedAt || b.createdAt).getTime() >= from);
+    }
+    if (dateTo) {
+      const to = new Date(dateTo).getTime() + 86400000; // include entire day
+      results = results.filter(b => new Date(b.bookmarkedAt || b.createdAt).getTime() <= to);
+    }
+    if (author) {
+      const a = author.toLowerCase();
+      results = results.filter(b => b.authorHandle?.toLowerCase().includes(a) || b.authorName?.toLowerCase().includes(a));
+    }
+    if (hasMedia === true) {
+      results = results.filter(b => b.mediaUrls?.length > 0);
+    }
+    if (hasVideo === true) {
+      results = results.filter(b => b.videoUrls?.length > 0);
+    }
+
     if (search) {
       const keywords = search.toLowerCase().split(/\s+/).filter(k => k.length > 0);
       results = results.filter(b => {
@@ -86,6 +130,7 @@ class BookmarkDB extends Dexie {
           b.authorHandle,
           (b.urls || []).join(' '),
           (b.categories || []).join(' '),
+          (b.tags || []).join(' '),
           b.notes,
         ].filter(Boolean).join(' ').toLowerCase();
         return keywords.every(k => haystack.includes(k));
@@ -226,9 +271,295 @@ class BookmarkDB extends Dexie {
     return md;
   }
 
+  // --- Tag Operations ---
+
+  async getAllTags() {
+    return await this.tags.orderBy('name').toArray();
+  }
+
+  async addTag(name, color = null) {
+    if (!color) {
+      const colors = ['#1d9bf0', '#f91880', '#ffd400', '#00ba7c', '#7856ff', '#ff7a00', '#e0245e', '#17bf63', '#794bc4', '#f45d22'];
+      const existing = await this.tags.count();
+      color = colors[existing % colors.length];
+    }
+    return await this.tags.add({ name, color, createdAt: new Date().toISOString() });
+  }
+
+  async deleteTag(name) {
+    await this.tags.where('name').equals(name).delete();
+    const bookmarks = await this.bookmarks.where('tags').equals(name).toArray();
+    for (const b of bookmarks) {
+      const tags = (b.tags || []).filter(t => t !== name);
+      await this.bookmarks.update(b.id, { tags });
+    }
+  }
+
+  async renameTag(oldName, newName) {
+    const tag = await this.tags.where('name').equals(oldName).first();
+    if (tag) await this.tags.update(tag.id, { name: newName });
+    const bookmarks = await this.bookmarks.where('tags').equals(oldName).toArray();
+    for (const b of bookmarks) {
+      const tags = (b.tags || []).map(t => t === oldName ? newName : t);
+      await this.bookmarks.update(b.id, { tags });
+    }
+  }
+
+  async addTagToBookmark(bookmarkId, tagName) {
+    const bookmark = await this.bookmarks.get(bookmarkId);
+    if (!bookmark) return;
+    const tags = [...new Set([...(bookmark.tags || []), tagName])];
+    await this.bookmarks.update(bookmarkId, { tags });
+  }
+
+  async removeTagFromBookmark(bookmarkId, tagName) {
+    const bookmark = await this.bookmarks.get(bookmarkId);
+    if (!bookmark) return;
+    const tags = (bookmark.tags || []).filter(t => t !== tagName);
+    await this.bookmarks.update(bookmarkId, { tags });
+  }
+
+  // --- Collection Operations ---
+
+  async getAllCollections() {
+    return await this.collections.orderBy('name').toArray();
+  }
+
+  async createCollection(name, description = '') {
+    return await this.collections.add({
+      name,
+      description,
+      bookmarkIds: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  async updateCollection(id, updates) {
+    await this.collections.update(id, { ...updates, updatedAt: new Date().toISOString() });
+  }
+
+  async deleteCollection(id) {
+    await this.collections.delete(id);
+  }
+
+  async addBookmarkToCollection(collectionId, bookmarkId) {
+    const col = await this.collections.get(collectionId);
+    if (!col) return;
+    const ids = [...new Set([...(col.bookmarkIds || []), bookmarkId])];
+    await this.collections.update(collectionId, { bookmarkIds: ids, updatedAt: new Date().toISOString() });
+  }
+
+  async removeBookmarkFromCollection(collectionId, bookmarkId) {
+    const col = await this.collections.get(collectionId);
+    if (!col) return;
+    const ids = (col.bookmarkIds || []).filter(id => id !== bookmarkId);
+    await this.collections.update(collectionId, { bookmarkIds: ids, updatedAt: new Date().toISOString() });
+  }
+
+  async getCollectionBookmarkCount(collectionId) {
+    const col = await this.collections.get(collectionId);
+    return col?.bookmarkIds?.length || 0;
+  }
+
+  // --- Stats / Analytics ---
+
+  async getStats() {
+    const allBookmarks = await this.bookmarks.toArray();
+    const total = allBookmarks.length;
+    if (total === 0) return { total: 0, authors: [], categories: [], tags: [], timeline: [], topAuthors: [] };
+
+    // Top authors
+    const authorMap = {};
+    for (const b of allBookmarks) {
+      const handle = b.authorHandle || 'unknown';
+      if (!authorMap[handle]) authorMap[handle] = { handle, name: b.authorName || '', count: 0, avatar: b.authorAvatarUrl || '' };
+      authorMap[handle].count++;
+    }
+    const topAuthors = Object.values(authorMap).sort((a, b) => b.count - a.count).slice(0, 20);
+
+    // Category distribution
+    const catMap = {};
+    let uncategorized = 0;
+    for (const b of allBookmarks) {
+      if (!b.categories || b.categories.length === 0) { uncategorized++; continue; }
+      for (const c of b.categories) {
+        catMap[c] = (catMap[c] || 0) + 1;
+      }
+    }
+    const categoryStats = Object.entries(catMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+
+    // Tag distribution
+    const tagMap = {};
+    for (const b of allBookmarks) {
+      for (const t of (b.tags || [])) {
+        tagMap[t] = (tagMap[t] || 0) + 1;
+      }
+    }
+    const tagStats = Object.entries(tagMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+
+    // Timeline (bookmarks per day, last 30 days)
+    const now = Date.now();
+    const thirtyDaysAgo = now - 30 * 86400000;
+    const dayMap = {};
+    for (const b of allBookmarks) {
+      const ts = new Date(b.bookmarkedAt || b.createdAt).getTime();
+      if (ts >= thirtyDaysAgo) {
+        const day = new Date(ts).toISOString().split('T')[0];
+        dayMap[day] = (dayMap[day] || 0) + 1;
+      }
+    }
+    const timeline = Object.entries(dayMap).map(([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Media stats
+    const withMedia = allBookmarks.filter(b => b.mediaUrls?.length > 0).length;
+    const withVideo = allBookmarks.filter(b => b.videoUrls?.length > 0).length;
+    const withNotes = allBookmarks.filter(b => b.noteText).length;
+
+    return {
+      total,
+      uncategorized,
+      withMedia,
+      withVideo,
+      withNotes,
+      topAuthors,
+      categories: categoryStats,
+      tags: tagStats,
+      timeline,
+    };
+  }
+
+  // --- Duplicate Detection ---
+
+  async findDuplicates() {
+    const allBookmarks = await this.bookmarks.toArray();
+    const tweetIdMap = {};
+    const textMap = {};
+    const duplicates = [];
+
+    for (const b of allBookmarks) {
+      // Exact tweetId duplicates
+      if (tweetIdMap[b.tweetId]) {
+        duplicates.push({ type: 'exact', original: tweetIdMap[b.tweetId], duplicate: b });
+      } else {
+        tweetIdMap[b.tweetId] = b;
+      }
+
+      // Similar text duplicates (same text, different tweet IDs)
+      if (b.text && b.text.length > 20) {
+        const textKey = b.text.toLowerCase().trim().replace(/\s+/g, ' ').substring(0, 100);
+        if (textMap[textKey] && textMap[textKey].tweetId !== b.tweetId) {
+          duplicates.push({ type: 'similar', original: textMap[textKey], duplicate: b });
+        } else {
+          textMap[textKey] = b;
+        }
+      }
+    }
+    return duplicates;
+  }
+
+  async mergeDuplicates(keepId, removeId) {
+    const keep = await this.bookmarks.get(keepId);
+    const remove = await this.bookmarks.get(removeId);
+    if (!keep || !remove) return;
+
+    // Merge categories and tags
+    const mergedCategories = [...new Set([...(keep.categories || []), ...(remove.categories || [])])];
+    const mergedTags = [...new Set([...(keep.tags || []), ...(remove.tags || [])])];
+    const mergedNotes = [keep.notes, remove.notes].filter(Boolean).join('\n');
+
+    await this.bookmarks.update(keepId, { categories: mergedCategories, tags: mergedTags, notes: mergedNotes });
+    await this.bookmarks.delete(removeId);
+
+    // Remove from collections
+    const collections = await this.collections.toArray();
+    for (const col of collections) {
+      if (col.bookmarkIds?.includes(removeId)) {
+        const ids = col.bookmarkIds.filter(id => id !== removeId);
+        if (!ids.includes(keepId)) ids.push(keepId);
+        await this.collections.update(col.id, { bookmarkIds: ids });
+      }
+    }
+  }
+
+  // --- Offline Reading / Media Cache ---
+
+  async cacheMedia(url) {
+    const existing = await this.cachedMedia.get(url);
+    if (existing) return existing;
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      const record = { url, blob, type: blob.type, size: blob.size, cachedAt: new Date().toISOString() };
+      await this.cachedMedia.put(record);
+      return record;
+    } catch (e) {
+      console.warn('[XBS] Failed to cache media:', url, e.message);
+      return null;
+    }
+  }
+
+  async getCachedMedia(url) {
+    const record = await this.cachedMedia.get(url);
+    if (!record?.blob) return null;
+    return URL.createObjectURL(record.blob);
+  }
+
+  async cacheBookmarkMedia(bookmarkId) {
+    const bookmark = await this.bookmarks.get(bookmarkId);
+    if (!bookmark) return { cached: 0 };
+    let cached = 0;
+    const urls = [...(bookmark.mediaUrls || []), bookmark.authorAvatarUrl].filter(Boolean);
+    for (const url of urls) {
+      const result = await this.cacheMedia(url);
+      if (result) cached++;
+    }
+    await this.bookmarks.update(bookmarkId, { offlineCached: true });
+    return { cached };
+  }
+
+  async cacheAllMedia(onProgress) {
+    const allBookmarks = await this.bookmarks.toArray();
+    let total = 0;
+    let done = 0;
+    for (const b of allBookmarks) {
+      const urls = [...(b.mediaUrls || []), b.authorAvatarUrl].filter(Boolean);
+      total += urls.length;
+    }
+    for (const b of allBookmarks) {
+      const urls = [...(b.mediaUrls || []), b.authorAvatarUrl].filter(Boolean);
+      for (const url of urls) {
+        await this.cacheMedia(url);
+        done++;
+        if (onProgress) onProgress(done, total);
+      }
+      await this.bookmarks.update(b.id, { offlineCached: true });
+    }
+    return { total: done };
+  }
+
+  async getCacheSize() {
+    const all = await this.cachedMedia.toArray();
+    const totalSize = all.reduce((sum, r) => sum + (r.size || 0), 0);
+    return { count: all.length, totalSize, totalSizeMB: (totalSize / 1048576).toFixed(1) };
+  }
+
+  async clearCache() {
+    await this.cachedMedia.clear();
+    // Reset offlineCached flags
+    const all = await this.bookmarks.toArray();
+    for (const b of all) {
+      if (b.offlineCached) await this.bookmarks.update(b.id, { offlineCached: false });
+    }
+  }
+
   async clearAll() {
     await this.bookmarks.clear();
     await this.categories.clear();
+    await this.tags.clear();
+    await this.collections.clear();
+    await this.cachedMedia.clear();
     await this.syncState.clear();
   }
 }

@@ -9,7 +9,9 @@
     "alarms",
     "scripting",
     "tabs",
-    "webRequest"
+    "webRequest",
+    "contextMenus",
+    "notifications"
   ],
   "host_permissions": [
     "https://x.com/*",

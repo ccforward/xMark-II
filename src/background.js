@@ -585,12 +585,97 @@ function broadcastStatus(status) {
 }
 
 // ============================================
-// Message handling
+// Configurable auto-sync with Chrome Alarms
+// ============================================
+
+async function setupAutoSync() {
+  const { autoSyncInterval = 30 } = await chrome.storage.local.get(['autoSyncInterval']);
+  // Clear existing alarm
+  await chrome.alarms.clear('periodicSync');
+  if (autoSyncInterval > 0) {
+    chrome.alarms.create('periodicSync', { periodInMinutes: autoSyncInterval });
+    console.log(`[XBS] Auto-sync set to every ${autoSyncInterval} minutes`);
+  } else {
+    console.log('[XBS] Auto-sync disabled');
+  }
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'periodicSync') {
+    chrome.tabs.query({ url: 'https://x.com/*' }, (tabs) => {
+      if (tabs.length > 0) syncBookmarks({ fullSync: false }).catch(console.error);
+    });
+  }
+});
+
+// Initialize auto-sync on startup
+setupAutoSync();
+
+// ============================================
+// Context Menu (right-click on x.com)
+// ============================================
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: 'xbs-add-tag',
+    title: 'XB Sync: Add tag to this tweet',
+    contexts: ['link'],
+    documentUrlPatterns: ['https://x.com/*'],
+  });
+  chrome.contextMenus.create({
+    id: 'xbs-add-category',
+    title: 'XB Sync: Add category to this tweet',
+    contexts: ['link'],
+    documentUrlPatterns: ['https://x.com/*'],
+  });
+  chrome.contextMenus.create({
+    id: 'xbs-bookmark-tweet',
+    title: 'XB Sync: Save this tweet',
+    contexts: ['link'],
+    documentUrlPatterns: ['https://x.com/*'],
+  });
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const linkUrl = info.linkUrl || '';
+  // Extract tweet ID from URL like https://x.com/user/status/123456
+  const match = linkUrl.match(/x\.com\/\w+\/status\/(\d+)/);
+  if (!match) return;
+
+  const tweetId = match[1];
+  const db = await getDB();
+  const existing = await db.bookmarks.where('tweetId').equals(tweetId).first();
+
+  if (info.menuItemId === 'xbs-bookmark-tweet') {
+    if (existing) {
+      // Already saved
+      chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon48.png', title: 'XB Sync', message: 'Tweet already saved in bookmarks.' });
+    } else {
+      chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon48.png', title: 'XB Sync', message: 'Tweet will be synced on next sync.' });
+    }
+    return;
+  }
+
+  if (!existing) {
+    chrome.notifications.create({ type: 'basic', iconUrl: 'icons/icon48.png', title: 'XB Sync', message: 'Tweet not found in bookmarks. Sync first.' });
+    return;
+  }
+
+  // Send message to options page to handle tag/category UI
+  chrome.runtime.sendMessage({
+    type: 'CONTEXT_MENU_ACTION',
+    action: info.menuItemId === 'xbs-add-tag' ? 'addTag' : 'addCategory',
+    bookmarkId: existing.id,
+    tweetId,
+  }).catch(() => {});
+});
+
+// ============================================
+// Enhanced message handling
 // ============================================
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'API_PARAMS_CAPTURED') {
-    // From content script (backup path)
     capturedApiInfo = message.data;
     chrome.storage.local.set({ apiParams: message.data }).then(() => sendResponse({ ok: true }));
     return true;
@@ -629,18 +714,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     })();
     return true;
   }
-});
 
-// ============================================
-// Periodic sync
-// ============================================
-
-chrome.alarms.create('periodicSync', { periodInMinutes: 30 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'periodicSync') {
-    chrome.tabs.query({ url: 'https://x.com/*' }, (tabs) => {
-      if (tabs.length > 0) syncBookmarks({ fullSync: false }).catch(console.error);
+  if (message.type === 'SET_AUTO_SYNC_INTERVAL') {
+    chrome.storage.local.set({ autoSyncInterval: message.interval }).then(() => {
+      setupAutoSync();
+      sendResponse({ ok: true });
     });
+    return true;
+  }
+
+  if (message.type === 'GET_AUTO_SYNC_INTERVAL') {
+    chrome.storage.local.get(['autoSyncInterval'], (result) => {
+      sendResponse({ interval: result.autoSyncInterval ?? 30 });
+    });
+    return true;
   }
 });
 
