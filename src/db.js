@@ -70,7 +70,7 @@ class BookmarkDB extends Dexie {
     return results;
   }
 
-  async getBookmarks({ offset = 0, limit = 50, category = null, search = null, sort = 'bookmarkedAt', order = 'desc', tag = null, collectionId = null, dateFrom = null, dateTo = null, author = null, hasMedia = null, hasVideo = null } = {}) {
+  async getBookmarks({ offset = 0, limit = 50, category = null, search = null, sort = 'createdAt', order = 'desc', tag = null, collectionId = null, dateFrom = null, dateTo = null, author = null, hasMedia = null, hasVideo = null } = {}) {
     let collection = this.bookmarks.orderBy(sort);
 
     if (order === 'desc') {
@@ -102,11 +102,11 @@ class BookmarkDB extends Dexie {
     // Advanced filters
     if (dateFrom) {
       const from = new Date(dateFrom).getTime();
-      results = results.filter(b => new Date(b.bookmarkedAt || b.createdAt).getTime() >= from);
+      results = results.filter(b => new Date(b.createdAt).getTime() >= from);
     }
     if (dateTo) {
       const to = new Date(dateTo).getTime() + 86400000; // include entire day
-      results = results.filter(b => new Date(b.bookmarkedAt || b.createdAt).getTime() <= to);
+      results = results.filter(b => new Date(b.createdAt).getTime() <= to);
     }
     if (author) {
       const a = author.toLowerCase();
@@ -223,7 +223,6 @@ class BookmarkDB extends Dexie {
       mediaUrls: b.mediaUrls || [],
       videoUrls: b.videoUrls || [],
       createdAt: b.createdAt,
-      bookmarkedAt: b.bookmarkedAt,
       ...(includeCategories ? { categories: b.categories || [], notes: b.notes || '' } : {}),
       stats: { likes: b.likeCount || 0, retweets: b.retweetCount || 0, replies: b.replyCount || 0, bookmarks: b.bookmarkCount || 0, views: b.viewCount || 0 }
     }));
@@ -233,7 +232,7 @@ class BookmarkDB extends Dexie {
     const data = await this.exportAsJSON({ category });
     if (data.length === 0) return '';
 
-    const headers = ['tweetId', 'text', 'authorName', 'authorHandle', 'url', 'createdAt', 'bookmarkedAt', 'categories', 'notes', 'likes', 'retweets', 'replies'];
+    const headers = ['tweetId', 'text', 'authorName', 'authorHandle', 'url', 'createdAt', 'categories', 'notes', 'likes', 'retweets', 'replies'];
     const escape = (str) => {
       if (!str) return '';
       const s = String(str).replace(/"/g, '""');
@@ -242,7 +241,7 @@ class BookmarkDB extends Dexie {
 
     const rows = data.map(b => [
       escape(b.tweetId), escape(b.text), escape(b.author?.name), escape(b.author?.handle),
-      escape(b.url), escape(b.createdAt), escape(b.bookmarkedAt),
+      escape(b.url), escape(b.createdAt),
       escape((b.categories || []).join('; ')), escape(b.notes),
       escape(b.stats?.likes), escape(b.stats?.retweets), escape(b.stats?.replies),
     ].join(','));
@@ -261,7 +260,6 @@ class BookmarkDB extends Dexie {
       md += `${b.text || ''}\n\n`;
       md += `- **URL**: ${b.url || ''}\n`;
       md += `- **Created**: ${b.createdAt || ''}\n`;
-      md += `- **Bookmarked**: ${b.bookmarkedAt || ''}\n`;
       if (b.categories?.length) md += `- **Categories**: ${b.categories.join(', ')}\n`;
       if (b.notes) md += `- **Notes**: ${b.notes}\n`;
       if (b.mediaUrls?.length) md += `- **Media**: ${b.mediaUrls.join(', ')}\n`;
@@ -398,13 +396,14 @@ class BookmarkDB extends Dexie {
     const withMedia = allBookmarks.filter(b => b.mediaUrls?.length > 0).length;
     const withVideo = allBookmarks.filter(b => b.videoUrls?.length > 0).length;
     const withNotes = allBookmarks.filter(b => b.noteText).length;
+    const withArticles = allBookmarks.filter(b => b.article).length;
 
     // --- Timeline (last 30 days) ---
     const now = Date.now();
     const thirtyDaysAgo = now - 30 * 86400000;
     const dayMap = {};
     for (const b of allBookmarks) {
-      const ts = new Date(b.bookmarkedAt || b.createdAt).getTime();
+      const ts = new Date(b.createdAt).getTime();
       if (ts >= thirtyDaysAgo) {
         const day = new Date(ts).toISOString().split('T')[0];
         dayMap[day] = (dayMap[day] || 0) + 1;
@@ -416,7 +415,7 @@ class BookmarkDB extends Dexie {
     const oneYearAgo = now - 365 * 86400000;
     const heatmapDayMap = {};
     for (const b of allBookmarks) {
-      const ts = new Date(b.bookmarkedAt || b.createdAt).getTime();
+      const ts = new Date(b.createdAt).getTime();
       if (ts >= oneYearAgo) {
         const day = new Date(ts).toISOString().split('T')[0];
         heatmapDayMap[day] = (heatmapDayMap[day] || 0) + 1;
@@ -467,7 +466,7 @@ class BookmarkDB extends Dexie {
     // --- Hour of Day Distribution ---
     const hourCounts = new Array(24).fill(0);
     for (const b of allBookmarks) {
-      const ts = new Date(b.bookmarkedAt || b.createdAt);
+      const ts = new Date(b.createdAt);
       if (!isNaN(ts.getTime())) hourCounts[ts.getHours()]++;
     }
     const maxHourCount = Math.max(...hourCounts, 1);
@@ -476,7 +475,7 @@ class BookmarkDB extends Dexie {
     // --- Day of Week Distribution ---
     const dowCounts = new Array(7).fill(0);
     for (const b of allBookmarks) {
-      const ts = new Date(b.bookmarkedAt || b.createdAt);
+      const ts = new Date(b.createdAt);
       if (!isNaN(ts.getTime())) dowCounts[ts.getDay()]++;
     }
     const maxDowCount = Math.max(...dowCounts, 1);
@@ -487,7 +486,7 @@ class BookmarkDB extends Dexie {
     const weekMap = {};
     const twelveWeeksAgo = now - 12 * 7 * 86400000;
     for (const b of allBookmarks) {
-      const ts = new Date(b.bookmarkedAt || b.createdAt).getTime();
+      const ts = new Date(b.createdAt).getTime();
       if (ts >= twelveWeeksAgo) {
         // Get ISO week start (Monday)
         const d = new Date(ts);
@@ -498,26 +497,38 @@ class BookmarkDB extends Dexie {
       }
     }
     const weekEntries = Object.entries(weekMap).sort((a, b) => a[0].localeCompare(b[0]));
-    const maxWeekCount = Math.max(...weekEntries.map(e => e[1]), 1);
+    const weeklyData = weekEntries.map(([date, count]) => ({ date, count }));
 
-    let lineChart = null;
-    if (weekEntries.length > 1) {
-      const width = 800;
-      const height = 200;
-      const padding = 20;
-      const points = weekEntries.map(([date, count], i) => ({
-        x: padding + (i / (weekEntries.length - 1)) * (width - 2 * padding),
-        y: height - padding - (count / maxWeekCount) * (height - 2 * padding),
-        value: count,
-        label: date,
-      }));
-
-      const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-      const areaPath = linePath + ` L ${points[points.length - 1].x} ${height} L ${points[0].x} ${height} Z`;
-      const xLabels = weekEntries.map(e => e[0].slice(5)); // MM-DD format
-
-      lineChart = { points, linePath, areaPath, xLabels };
+    // --- Language Distribution ---
+    const langMap = {};
+    for (const b of allBookmarks) {
+      const lang = b.language || 'unknown';
+      langMap[lang] = (langMap[lang] || 0) + 1;
     }
+    const languages = Object.entries(langMap)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+
+    // --- Engagement Summary ---
+    let totalLikes = 0, totalRetweets = 0, totalReplies = 0, totalViews = 0;
+    let viewCount = 0;
+    for (const b of allBookmarks) {
+      totalLikes += b.likeCount || 0;
+      totalRetweets += b.retweetCount || 0;
+      totalReplies += b.replyCount || 0;
+      if (b.viewCount) { totalViews += b.viewCount; viewCount++; }
+    }
+    const engagement = {
+      totalLikes,
+      totalRetweets,
+      totalReplies,
+      totalViews,
+      avgLikes: total > 0 ? Math.round(totalLikes / total) : 0,
+      avgRetweets: total > 0 ? Math.round(totalRetweets / total) : 0,
+      avgReplies: total > 0 ? Math.round(totalReplies / total) : 0,
+      avgViews: viewCount > 0 ? Math.round(totalViews / viewCount) : 0,
+    };
 
     return {
       total,
@@ -525,6 +536,7 @@ class BookmarkDB extends Dexie {
       withMedia,
       withVideo,
       withNotes,
+      withArticles,
       topAuthors,
       categories: categoryStats,
       tags: tagStats,
@@ -534,7 +546,9 @@ class BookmarkDB extends Dexie {
       maxHourCount,
       dayOfWeekDistribution,
       maxDowCount,
-      lineChart,
+      weeklyData,
+      languages,
+      engagement,
     };
   }
 
@@ -733,7 +747,6 @@ export function generateMockBookmarks(count = 10) {
     const author = authors[i % authors.length];
     const tweetId = `${1700000000000000000n + BigInt(i * 1000)}`;
     const createdAt = new Date(now - (count - i) * 3600000).toISOString();
-    const bookmarkedAt = new Date(now - (count - i) * 1800000).toISOString();
 
     bookmarks.push({
       tweetId,
@@ -743,7 +756,6 @@ export function generateMockBookmarks(count = 10) {
       tweetUrl: `https://x.com/${author.handle}/status/${tweetId}`,
       mediaUrls: i % 3 === 0 ? [`https://pbs.twimg.com/media/example${i}.jpg`] : [],
       createdAt,
-      bookmarkedAt,
       categories: [],
       notes: '',
       isRead: false,
@@ -811,7 +823,6 @@ export async function runDBTests() {
       tweetUrl: 'https://x.com/testuser/status/12345',
       mediaUrls: [],
       createdAt: new Date().toISOString(),
-      bookmarkedAt: new Date().toISOString(),
       categories: [],
       notes: '',
       isRead: false,
@@ -834,7 +845,6 @@ export async function runDBTests() {
       tweetUrl: 'https://x.com/testuser/status/12345',
       mediaUrls: [],
       createdAt: new Date().toISOString(),
-      bookmarkedAt: new Date().toISOString(),
       categories: ['NewCat'],
       notes: '',
       isRead: false,

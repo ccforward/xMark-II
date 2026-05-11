@@ -225,7 +225,6 @@ async function fetchBookmarksPage(tabId, cursor = null) {
 // ============================================
 
 let _loggedQuotedTweet = false;
-let _loggedSortIndex = false;
 
 function parseTweetData(tweetResult) {
   if (!tweetResult) return null;
@@ -332,7 +331,7 @@ function parseTweetData(tweetResult) {
     videoUrls,
     videoThumbnails,
     urls,
-    createdAt: tweet.created_at ? new Date(tweet.created_at).toISOString() : null,
+    createdAt: (() => { try { return tweet.created_at ? new Date(tweet.created_at).toISOString() : null; } catch { return null; } })(),
     likeCount: tweet.favorite_count || 0,
     retweetCount: tweet.retweet_count || 0,
     replyCount: tweet.reply_count || 0,
@@ -342,7 +341,42 @@ function parseTweetData(tweetResult) {
     isRetweet: !!(tweet.retweeted_status_result?.result),
     isNote: !!noteTweet,
     quotedTweetId: tweet.quoted_status_id_str || null,
-    bookmarkedAt: new Date().toISOString(),
+    quotedTweet: (() => {
+      const qtResult = tweetResult.quoted_status_result?.result;
+      if (!qtResult) return null;
+      const qt = parseTweetData(qtResult);
+      if (!qt) return null;
+      return {
+        tweetId: qt.tweetId,
+        text: qt.text,
+        authorName: qt.authorName,
+        authorHandle: qt.authorHandle,
+        authorAvatarUrl: qt.authorAvatarUrl,
+        tweetUrl: qt.tweetUrl,
+        mediaUrls: qt.mediaUrls,
+        mediaTypes: qt.mediaTypes,
+        videoUrls: qt.videoUrls,
+        createdAt: qt.createdAt,
+      };
+    })(),
+    article: (() => {
+      const articleResult = tweetResult.article?.article_results?.result;
+      if (!articleResult) return null;
+      const coverMedia = articleResult.cover_media?.media_info;
+      const articleUrl = tweetResult.card?.rest_id || null;
+      return {
+        id: articleResult.rest_id || null,
+        title: articleResult.title || null,
+        previewText: articleResult.preview_text || null,
+        coverImageUrl: coverMedia?.original_img_url || null,
+        coverImageWidth: coverMedia?.original_img_width || null,
+        coverImageHeight: coverMedia?.original_img_height || null,
+        articleUrl,
+        publishedAt: articleResult.metadata?.first_published_at_secs
+          ? new Date(articleResult.metadata.first_published_at_secs * 1000).toISOString()
+          : null,
+      };
+    })(),
   };
 }
 
@@ -387,15 +421,6 @@ function parseBookmarksResponse(data) {
               continue;
             }
 
-            // Debug: log first few sortIndex values to diagnose bookmarkedAt
-            if (!_loggedSortIndex && entry.sortIndex) {
-              const sv = BigInt(entry.sortIndex);
-              const asMs = Number(sv);
-              const asSnowflake = Number((sv >> 22n) + 1288834974657n);
-              console.log(`[XBS] sortIndex debug: raw=${entry.sortIndex}, asMs=${new Date(asMs).toISOString()}, asSnowflake=${new Date(asSnowflake).toISOString()}`);
-              _loggedSortIndex = true;
-            }
-
             // Single tweet entry
             if (entry.content?.itemContent) {
               const ic = entry.content.itemContent;
@@ -403,23 +428,6 @@ function parseBookmarksResponse(data) {
               if (tr) {
                 const parsed = parseTweetData(tr);
                 if (parsed) {
-                  // Try to extract bookmarkedAt from sortIndex
-                  if (entry.sortIndex) {
-                    try {
-                      const sortVal = BigInt(entry.sortIndex);
-                      let ts;
-                      // If sortIndex is in millisecond range (13 digits: 1e12 to 2e12), use directly
-                      if (sortVal > 1000000000000n && sortVal < 2000000000000n) {
-                        ts = Number(sortVal);
-                      } else if (sortVal > 1000000000000000n) {
-                        // Snowflake-like ID: extract timestamp
-                        ts = Number((sortVal >> 22n) + 1288834974657n);
-                      }
-                      if (ts && ts > 1400000000000 && ts < 2000000000000) {
-                        parsed.bookmarkedAt = new Date(ts).toISOString();
-                      }
-                    } catch {}
-                  }
                   bookmarks.push(parsed);
                 }
               }
@@ -434,20 +442,6 @@ function parseBookmarksResponse(data) {
                   if (tr) {
                     const parsed = parseTweetData(tr);
                     if (parsed) {
-                      if (item.item?.sortIndex) {
-                        try {
-                          const sortVal = BigInt(item.item.sortIndex);
-                          let ts;
-                          if (sortVal > 1000000000000n && sortVal < 2000000000000n) {
-                            ts = Number(sortVal);
-                          } else if (sortVal > 1000000000000000n) {
-                            ts = Number((sortVal >> 22n) + 1288834974657n);
-                          }
-                          if (ts && ts > 1400000000000 && ts < 2000000000000) {
-                            parsed.bookmarkedAt = new Date(ts).toISOString();
-                          }
-                        } catch {}
-                      }
                       bookmarks.push(parsed);
                     }
                   }
@@ -529,6 +523,8 @@ async function syncBookmarks({ fullSync = false } = {}) {
         broadcastStatus({ state: 'error', message: e.message });
         throw e;
       }
+
+      console.log(`[XBS] Raw API response (page ${page}):`, JSON.parse(JSON.stringify(data)));
 
       const { bookmarks, cursorBottom } = parseBookmarksResponse(data);
 
