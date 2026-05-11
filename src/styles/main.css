@@ -235,7 +235,7 @@ a:hover {
 .bookmark-checkbox {
   position: absolute;
   top: 16px;
-  right: 0;
+  right: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -248,10 +248,34 @@ a:hover {
   opacity: 1;
 }
 .bookmark-checkbox input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
   cursor: pointer;
+  position: relative;
+  transition: all 0.15s;
+}
+.bookmark-checkbox input[type="checkbox"]:hover {
+  border-color: var(--accent);
+}
+.bookmark-checkbox input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.bookmark-checkbox input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 6px;
+  height: 11px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 .avatar-link {
@@ -925,7 +949,7 @@ textarea.form-input { min-height: 80px; resize: vertical; font-family: inherit; 
   align-items: center;
   gap: 12px;
   padding: 12px 24px;
-  background: var(--text);
+  background: var(--accent);
   color: white;
   border-radius: 9999px;
   box-shadow: 0 4px 24px rgba(0,0,0,0.3);
@@ -940,6 +964,44 @@ textarea.form-input { min-height: 80px; resize: vertical; font-family: inherit; 
 }
 .bulk-actions .btn:hover {
   background: rgba(255,255,255,0.3);
+}
+.bulk-dropdown-wrapper {
+  position: relative;
+  display: inline-block;
+}
+.bulk-dropdown-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 4px;
+  min-width: 200px;
+  max-height: 240px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  color: var(--text);
+}
+.bulk-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.bulk-dropdown-item:hover {
+  background: var(--bg-tertiary);
+}
+.bulk-dropdown-item.disabled {
+  color: var(--text-muted);
+  cursor: default;
 }
 
 /* Spinner */

@@ -2,7 +2,6 @@
   <div class="app-layout">
     <AppSidebar
       :currentView="currentView"
-      :categories="categories"
       :tags="tags"
       :collections="collections"
       :bookmarkCount="stats.bookmarkCount"
@@ -102,12 +101,12 @@
         <!-- Bulk Actions -->
         <BulkActions
           :selectedIds="selectedIds"
+          :tags="tags"
           :collections="collections"
-          @categorize="bulkCategorize"
           @tag="bulkTag"
           @collection="bulkAddToCollection"
           @export="handleBulkExport"
-          @clear="clearSelection"
+          @create-collection="showCreateCollectionModal = true"
         />
 
         <!-- Bookmark List -->
@@ -117,7 +116,6 @@
             :key="bm.id"
             :bookmark="bm"
             :selected="selectedIds.has(bm.id)"
-            :categories="categories"
             :tags="tags"
             :collections="collections"
             :openDropdownId="openDropdownId"
@@ -125,12 +123,9 @@
             @toggle-select="toggleSelect"
             @open-media="openMedia"
             @remove-tag="removeTag"
-            @remove-category="removeCategory"
             @toggle-dropdown="toggleDropdown"
-            @add-category="addCategory"
             @add-tag="addTag"
             @add-to-collection="addToCollection"
-            @prompt-new-category="promptNewCategory"
             @prompt-new-tag="promptNewTag"
             @edit-note="openNoteEditor"
             @delete="handleDelete"
@@ -163,8 +158,7 @@
     </div>
 
     <!-- Modals -->
-    <ExportModal v-if="showExportModal" :categories="categories" @close="showExportModal = false" @export="handleExport" />
-    <CategoryModal v-if="showCategoryModal" :categories="categories" @close="showCategoryModal = false" @create="createCategory" @rename="renameCategory" @delete="deleteCategory" />
+    <ExportModal v-if="showExportModal" @close="showExportModal = false" @export="handleExport" />
     <TagModal v-if="showTagModal" :tags="tags" @close="showTagModal = false" @create="createTag" @rename="renameTag" @delete="deleteTag" />
     <CollectionModal v-if="showCreateCollectionModal" @close="showCreateCollectionModal = false" @create="handleCreateCollection" />
     <SettingsModal v-if="showSettingsModal" :autoSyncInterval="autoSyncInterval" @close="showSettingsModal = false" @update-interval="updateAutoSync" />
@@ -176,7 +170,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Search } from 'lucide-vue-next'
-import { getDB, loadMockData } from './db.js'
+import { getDB } from './db.js'
 
 // Components
 import AppSidebar from './components/layout/AppSidebar.vue'
@@ -184,7 +178,6 @@ import StatsView from './components/stats/StatsView.vue'
 import BookmarkItem from './components/bookmarks/BookmarkItem.vue'
 import BulkActions from './components/bookmarks/BulkActions.vue'
 import ExportModal from './components/modals/ExportModal.vue'
-import CategoryModal from './components/modals/CategoryModal.vue'
 import TagModal from './components/modals/TagModal.vue'
 import CollectionModal from './components/modals/CollectionModal.vue'
 import SettingsModal from './components/modals/SettingsModal.vue'
@@ -199,15 +192,15 @@ import { useKeyboard } from './composables/useKeyboard.js'
 
 // --- Bookmarks ---
 const {
-  bookmarks, categories, tags, collections, total, selectedIds,
+  bookmarks, tags, collections, total, selectedIds,
   loadingMore, searchQuery, showAdvancedSearch, currentView,
   openDropdownId, dropdownType, filters,
-  loadBookmarks, loadMore, loadCategories, loadTags, loadCollections,
-  addCategory, removeCategory, addTag, removeTag, addToCollection,
-  createCategory, createTag, createCollection,
-  deleteCategory, deleteTag, renameCategory, renameTag,
+  loadBookmarks, loadMore, loadTags, loadCollections,
+  addTag, removeTag, addToCollection,
+  createTag, createCollection,
+  deleteTag, renameTag,
   deleteBookmark, updateNote, toggleSelect, clearSelection,
-  bulkCategorize, bulkTag, bulkAddToCollection, bulkExport,
+  bulkTag, bulkAddToCollection, bulkExport,
   clearFilters, toggleDropdown, debouncedSearch, switchView,
 } = useBookmarks()
 
@@ -224,7 +217,6 @@ const scrollTrigger = ref(null)
 
 // Modals
 const showExportModal = ref(false)
-const showCategoryModal = ref(false)
 const showTagModal = ref(false)
 const showCreateCollectionModal = ref(false)
 const showSettingsModal = ref(false)
@@ -242,9 +234,7 @@ const lightbox = reactive({ visible: false, items: [], index: 0 })
 // --- Computed ---
 const viewTitle = computed(() => {
   if (currentView.value === 'all') return 'All Bookmarks'
-  if (currentView.value === 'uncategorized') return 'Uncategorized'
-  if (currentView.value.startsWith('category:')) return currentView.value.slice(9)
-  if (currentView.value.startsWith('tag:')) return '#' + currentView.value.slice(4)
+  if (currentView.value.startsWith('tag:')) return currentView.value.slice(4)
   if (currentView.value.startsWith('collection:')) {
     const col = collections.value.find(c => c.id === parseInt(currentView.value.slice(11)))
     return col?.name || 'Collection'
@@ -259,7 +249,7 @@ const { handleKeydown } = useKeyboard({
   toggleSelect,
   lightbox,
   closeLightbox,
-  modals: [showExportModal, showCategoryModal, showTagModal, showSettingsModal, showShareModal, showNoteModal, showCreateCollectionModal],
+  modals: [showExportModal, showTagModal, showSettingsModal, showShareModal, showNoteModal, showCreateCollectionModal],
 })
 
 // --- Navigation ---
@@ -270,7 +260,6 @@ function handleNavigate(view) {
 
 function handleAction(action) {
   if (action === 'export') showExportModal.value = true
-  else if (action === 'manageCategories') showCategoryModal.value = true
   else if (action === 'manageTags') showTagModal.value = true
   else if (action === 'settings') showSettingsModal.value = true
   else if (action === 'createCollection') showCreateCollectionModal.value = true
@@ -292,16 +281,6 @@ function onSyncMessage(message) {
           if (!existing) await db.addTag(name)
           await db.addTagToBookmark(message.bookmarkId, name)
           loadBookmarks(); loadTags()
-        })
-      }
-    } else if (message.action === 'addCategory') {
-      const name = prompt('Category name to add:')
-      if (name) {
-        getDB().then(async db => {
-          const existing = await db.categories.where('name').equals(name).first()
-          if (!existing) await db.addCategory(name)
-          await db.addCategoryToBookmark(message.bookmarkId, name)
-          loadBookmarks(); loadCategories()
         })
       }
     }
@@ -356,14 +335,7 @@ async function saveNote(note) {
   showNoteModal.value = false
 }
 
-// --- Category/Tag prompts ---
-async function promptNewCategory(bookmarkId) {
-  const name = prompt('New category name:')
-  if (!name) return
-  await createCategory(name)
-  await addCategory(bookmarkId, name)
-}
-
+// --- Tag prompt ---
 async function promptNewTag(bookmarkId) {
   const name = prompt('New tag name:')
   if (!name) return
@@ -387,17 +359,16 @@ async function handleDelete(id) {
 // --- Export ---
 async function handleExport(format) {
   const db = await getDB()
-  const cat = 'all' // TODO: get from modal ref
   let content, filename, mimeType
   if (format === 'json') {
-    content = JSON.stringify(await db.exportAsJSON({ category: cat }), null, 2)
-    filename = 'x-bookmarks-all'; mimeType = 'application/json'
+    content = JSON.stringify(await db.exportAsJSON(), null, 2)
+    filename = 'xmark-bookmarks'; mimeType = 'application/json'
   } else if (format === 'csv') {
-    content = await db.exportAsCSV({ category: cat })
-    filename = 'x-bookmarks-all'; mimeType = 'text/csv'
+    content = await db.exportAsCSV()
+    filename = 'xmark-bookmarks'; mimeType = 'text/csv'
   } else if (format === 'markdown') {
-    content = await db.exportAsMarkdown({ category: cat })
-    filename = 'x-bookmarks-all'; mimeType = 'text/markdown'
+    content = await db.exportAsMarkdown()
+    filename = 'xmark-bookmarks'; mimeType = 'text/markdown'
   }
   const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)
@@ -409,10 +380,23 @@ async function handleExport(format) {
 
 async function handleBulkExport() {
   const data = await bulkExport()
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const headers = ['tweetId', 'text', 'authorName', 'authorHandle', 'url', 'createdAt', 'tags', 'notes', 'likes', 'retweets', 'replies']
+  const escape = (str) => {
+    if (!str) return ''
+    const s = String(str).replace(/"/g, '""')
+    return s.includes(',') || s.includes('\n') || s.includes('"') ? `"${s}"` : s
+  }
+  const rows = data.map(b => [
+    escape(b.tweetId), escape(b.text), escape(b.authorName), escape(b.authorHandle),
+    escape(b.tweetUrl), escape(b.createdAt),
+    escape((b.tags || []).join('; ')), escape(b.notes),
+    escape(b.likeCount), escape(b.retweetCount), escape(b.replyCount),
+  ].join(','))
+  const csv = [headers.join(','), ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = url; a.download = 'selected-bookmarks.json'; a.click()
+  a.href = url; a.download = 'selected-bookmarks.csv'; a.click()
   URL.revokeObjectURL(url)
 }
 
@@ -467,7 +451,7 @@ function handleClickOutside(e) {
 
 // --- Lifecycle ---
 onMounted(() => {
-  loadBookmarks(); loadCategories(); loadTags(); loadCollections(); loadStats(); loadAutoSyncInterval()
+  loadBookmarks(); loadTags(); loadCollections(); loadStats(); loadAutoSyncInterval()
   chrome.runtime.onMessage.addListener(onSyncMessage)
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)

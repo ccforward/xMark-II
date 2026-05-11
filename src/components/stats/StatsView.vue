@@ -20,9 +20,7 @@
 
     <TopAuthorsList v-if="statsData.topAuthors?.length" :authors="statsData.topAuthors" />
 
-    <DistributionList v-if="statsData.categories?.length" title="Category Distribution" :items="statsData.categories" :total="statsData.total" />
-
-    <DistributionList v-if="statsData.tags?.length" title="Tag Distribution" :items="statsData.tags" :total="statsData.total" prefix="#" variant="tag" />
+    <DistributionList v-if="statsData.tags?.length" title="Tag Distribution" :items="statsData.tags" :total="statsData.total" variant="tag" />
 
     <DistributionList v-if="statsData.languages?.length" title="Language Distribution" :items="statsData.languages" :total="statsData.total" />
   </div>

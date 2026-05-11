@@ -77,7 +77,7 @@
       <!-- Tags -->
       <div v-if="bookmark.tags?.length" class="bookmark-tags">
         <span v-for="t in bookmark.tags" :key="t" class="tag-badge" :style="getTagStyle(t)">
-          #{{ t }}
+          {{ t }}
           <button class="tag-remove" @click="$emit('remove-tag', bookmark.id, t)">&times;</button>
         </span>
       </div>
@@ -89,29 +89,13 @@
 
       <!-- Footer -->
       <div class="bookmark-footer">
-        <div class="bookmark-categories">
-          <span v-for="cat in (bookmark.categories || [])" :key="cat" class="category-tag" :style="getCategoryStyle(cat)">
-            {{ cat }}
-            <button class="tag-remove" @click="$emit('remove-category', bookmark.id, cat)">&times;</button>
-          </span>
-        </div>
         <div class="bookmark-actions">
-          <div class="category-dropdown">
-            <button class="icon-btn" title="Add category" @click="$emit('toggle-dropdown', bookmark.id, 'cat')"><TagIcon :size="16" /></button>
-            <div v-if="dropdownOpen === 'cat'" class="category-dropdown-menu">
-              <div v-for="cat in categories" :key="cat.name" class="category-dropdown-item" :class="{ assigned: bookmark.categories?.includes(cat.name) }" @click="$emit('add-category', bookmark.id, cat.name)">
-                <span class="category-dot" :style="{ background: cat.color }"></span>
-                {{ cat.name }}
-              </div>
-              <div class="category-dropdown-item" @click="$emit('prompt-new-category', bookmark.id)">+ New category...</div>
-            </div>
-          </div>
           <div class="category-dropdown">
             <button class="icon-btn" title="Add tag" @click="$emit('toggle-dropdown', bookmark.id, 'tag')"><Hash :size="16" /></button>
             <div v-if="dropdownOpen === 'tag'" class="category-dropdown-menu">
               <div v-for="tag in tags" :key="tag.name" class="category-dropdown-item" :class="{ assigned: bookmark.tags?.includes(tag.name) }" @click="$emit('add-tag', bookmark.id, tag.name)">
                 <span class="tag-dot" :style="{ background: tag.color }"></span>
-                #{{ tag.name }}
+                {{ tag.name }}
               </div>
               <div class="category-dropdown-item" @click="$emit('prompt-new-tag', bookmark.id)">+ New tag...</div>
             </div>
@@ -136,12 +120,11 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Play, ExternalLink, MessageCircle, Repeat2, Heart, Eye, Bookmark, Tag as TagIcon, Hash, Library, PenLine, ArrowUpRight, Trash2 } from 'lucide-vue-next'
+import { Play, ExternalLink, MessageCircle, Repeat2, Heart, Eye, Bookmark, Hash, Library, PenLine, ArrowUpRight, Trash2 } from 'lucide-vue-next'
 
 const props = defineProps({
   bookmark: { type: Object, required: true },
   selected: Boolean,
-  categories: Array,
   tags: Array,
   collections: Array,
   openDropdownId: [Number, null],
@@ -149,9 +132,9 @@ const props = defineProps({
 })
 
 defineEmits([
-  'toggle-select', 'open-media', 'remove-tag', 'remove-category',
-  'toggle-dropdown', 'add-category', 'add-tag', 'add-to-collection',
-  'prompt-new-category', 'prompt-new-tag', 'edit-note', 'delete',
+  'toggle-select', 'open-media', 'remove-tag',
+  'toggle-dropdown', 'add-tag', 'add-to-collection',
+  'prompt-new-tag', 'edit-note', 'delete',
 ])
 
 const dropdownOpen = computed(() => {
@@ -194,10 +177,6 @@ function formatDate(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr)
   if (isNaN(d.getTime())) return dateStr
-  let hours = d.getHours()
-  const minutes = d.getMinutes().toString().padStart(2, '0')
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  hours = hours % 12 || 12
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
 }
@@ -214,12 +193,6 @@ function shortenUrl(url) {
     if (path.length > 40) path = path.substring(0, 37) + '...'
     return u.hostname + path
   } catch { return url.substring(0, 50) }
-}
-
-function getCategoryStyle(catName) {
-  const cat = props.categories?.find(c => c.name === catName)
-  if (cat) return { color: cat.color, borderColor: cat.color, background: cat.color + '20' }
-  return { color: 'var(--text-secondary)', borderColor: 'var(--border)', background: 'transparent' }
 }
 
 function getTagStyle(tagName) {

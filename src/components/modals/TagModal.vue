@@ -9,7 +9,7 @@
       <div class="category-list">
         <div v-for="tag in tags" :key="tag.name" class="category-list-item">
           <span class="tag-dot" :style="{ background: tag.color }"></span>
-          <span class="name">#{{ tag.name }}</span>
+          <span class="name">{{ tag.name }}</span>
           <div class="actions">
             <button class="icon-btn" title="Rename" @click="rename(tag.name)"><PenLine :size="14" /></button>
             <button class="icon-btn" title="Delete" @click="remove(tag.name)"><Trash2 :size="14" /></button>
@@ -44,6 +44,6 @@ function rename(name) {
 }
 
 function remove(name) {
-  if (confirm(`Delete tag "#${name}"?`)) emit('delete', name)
+  if (confirm(`Delete tag "${name}"?`)) emit('delete', name)
 }
 </script>

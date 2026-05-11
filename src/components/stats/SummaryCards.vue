@@ -24,10 +24,6 @@
       <div class="stat-number">{{ stats.topAuthors?.length || 0 }}</div>
       <div class="stat-label">Unique Authors</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-number">{{ stats.uncategorized || 0 }}</div>
-      <div class="stat-label">Uncategorized</div>
-    </div>
   </div>
 </template>
 
