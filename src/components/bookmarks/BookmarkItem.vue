@@ -1,5 +1,10 @@
 <template>
-  <div class="bookmark-item">
+  <div class="bookmark-item" :class="{ 'ai-processing-item': aiProcessingThis }">
+    <!-- AI Processing Overlay -->
+    <div v-if="aiProcessingThis" class="ai-processing-overlay">
+      <Sparkles :size="18" class="ai-spinning" />
+      <span>AI Processing...</span>
+    </div>
     <div class="bookmark-checkbox" :class="{ checked: selected }">
       <input type="checkbox" :checked="selected" @change="$emit('toggle-select', bookmark.id)" />
     </div>
@@ -87,9 +92,36 @@
         <span class="notes-label">Note:</span> {{ bookmark.notes }}
       </div>
 
+      <!-- AI Summary -->
+      <div v-if="bookmark.ai_processed && bookmark.ai_summary" class="ai-summary" :class="{ collapsed: !aiExpanded }">
+        <div class="ai-summary-header" @click="aiExpanded = !aiExpanded">
+          <Sparkles :size="14" class="ai-icon" />
+          <span class="ai-summary-title">AI Insight</span>
+          <ChevronDown :size="14" class="ai-chevron" :class="{ rotated: aiExpanded }" />
+        </div>
+        <div v-if="aiExpanded" class="ai-summary-body">
+          <p v-if="bookmark.ai_summary.coreInsight" class="ai-core-insight">{{ bookmark.ai_summary.coreInsight }}</p>
+          <div v-if="bookmark.ai_summary.keyLinks?.length" class="ai-links">
+            <a v-for="(link, i) in bookmark.ai_summary.keyLinks" :key="i" :href="link" target="_blank" class="ai-link">{{ shortenUrl(link) }}</a>
+          </div>
+          <div v-if="bookmark.ai_summary.actionItems?.length" class="ai-actions-list">
+            <div v-for="(item, i) in bookmark.ai_summary.actionItems" :key="i" class="ai-action-item">
+              <span class="ai-action-bullet">→</span> {{ item }}
+            </div>
+          </div>
+          <pre v-if="bookmark.ai_summary.codeSnippet" class="ai-code">{{ bookmark.ai_summary.codeSnippet }}</pre>
+          <p v-if="bookmark.ai_vision_notes" class="ai-vision-notes">
+            <Eye :size="12" /> {{ bookmark.ai_vision_notes }}
+          </p>
+        </div>
+      </div>
+
       <!-- Footer -->
       <div class="bookmark-footer">
         <div class="bookmark-actions">
+          <button class="icon-btn" title="Process with AI" :disabled="aiProcessingThis" @click="$emit('ai-process', bookmark.id)">
+            <Sparkles :size="16" :class="{ 'ai-spinning': aiProcessingThis }" />
+          </button>
           <div class="category-dropdown">
             <button class="icon-btn" title="Add tag" @click="$emit('toggle-dropdown', bookmark.id, 'tag')"><Hash :size="16" /></button>
             <div v-if="dropdownOpen === 'tag'" class="category-dropdown-menu">
@@ -119,8 +151,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { Play, ExternalLink, MessageCircle, Repeat2, Heart, Eye, Bookmark, Hash, Library, PenLine, ArrowUpRight, Trash2 } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Play, ExternalLink, MessageCircle, Repeat2, Heart, Eye, Bookmark, Hash, Library, PenLine, ArrowUpRight, Trash2, Sparkles, ChevronDown } from 'lucide-vue-next'
 
 const props = defineProps({
   bookmark: { type: Object, required: true },
@@ -129,13 +161,16 @@ const props = defineProps({
   collections: Array,
   openDropdownId: [Number, null],
   dropdownType: String,
+  aiProcessingThis: Boolean,
 })
 
 defineEmits([
   'toggle-select', 'open-media', 'remove-tag',
   'toggle-dropdown', 'add-tag', 'add-to-collection',
-  'prompt-new-tag', 'edit-note', 'delete',
+  'prompt-new-tag', 'edit-note', 'delete', 'ai-process',
 ])
+
+const aiExpanded = ref(false)
 
 const dropdownOpen = computed(() => {
   if (props.openDropdownId === props.bookmark.id) return props.dropdownType

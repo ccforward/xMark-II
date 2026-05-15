@@ -3,46 +3,23 @@
     <AppSidebar
       :currentView="currentView"
       :tags="tags"
+      :tagCounts="tagCounts"
       :collections="collections"
       :bookmarkCount="stats.bookmarkCount"
       @navigate="handleNavigate"
       @action="handleAction"
+      @show-tags-modal="showTagsBrowserModal = true"
     />
 
     <main class="main-content">
       <!-- Stats View -->
       <StatsView v-if="currentView === 'stats'" :statsData="statsData" />
 
-      <!-- Duplicates View -->
-      <div v-else-if="currentView === 'duplicates'" class="duplicates-view">
-        <div class="page-header">
-          <h1 class="page-title">Duplicate Detection</h1>
-          <button class="btn btn-primary" @click="scanDuplicates">Scan for Duplicates</button>
-        </div>
-        <div v-if="duplicates.length === 0" class="empty-state">
-          <h3>No duplicates found</h3>
-          <p>Click "Scan for Duplicates" to check your bookmarks</p>
-        </div>
-        <div v-else class="duplicate-list">
-          <div v-for="(dup, i) in duplicates" :key="i" class="duplicate-pair">
-            <div class="duplicate-type">{{ dup.type === 'exact' ? 'Exact duplicate' : 'Similar content' }}</div>
-            <div class="duplicate-items">
-              <div class="duplicate-item">
-                <span class="duplicate-author">@{{ dup.original.authorHandle }}</span>
-                <span class="duplicate-text">{{ truncateText(dup.original.text, 80) }}</span>
-              </div>
-              <div class="duplicate-item">
-                <span class="duplicate-author">@{{ dup.duplicate.authorHandle }}</span>
-                <span class="duplicate-text">{{ truncateText(dup.duplicate.text, 80) }}</span>
-              </div>
-            </div>
-            <div class="duplicate-actions">
-              <button class="btn btn-sm btn-secondary" @click="mergeDuplicate(dup.original.id, dup.duplicate.id)">Keep first, remove second</button>
-              <button class="btn btn-sm btn-secondary" @click="mergeDuplicate(dup.duplicate.id, dup.original.id)">Keep second, remove first</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- Rankings View -->
+      <TopTweetsView v-else-if="currentView === 'rankings'" :statsData="statsData" />
+
+      <!-- Settings View -->
+      <SettingsView v-else-if="currentView === 'settings'" :aiConfig="aiConfig" @save-ai-config="handleSaveAIConfig" />
 
       <!-- Bookmarks List View -->
       <template v-else>
@@ -120,6 +97,7 @@
             :collections="collections"
             :openDropdownId="openDropdownId"
             :dropdownType="dropdownType"
+            :aiProcessingThis="aiProcessingId === bm.id"
             @toggle-select="toggleSelect"
             @open-media="openMedia"
             @remove-tag="removeTag"
@@ -129,6 +107,7 @@
             @prompt-new-tag="promptNewTag"
             @edit-note="openNoteEditor"
             @delete="handleDelete"
+            @ai-process="handleAIProcess"
           />
         </div>
 
@@ -161,7 +140,8 @@
     <ExportModal v-if="showExportModal" @close="showExportModal = false" @export="handleExport" />
     <TagModal v-if="showTagModal" :tags="tags" @close="showTagModal = false" @create="createTag" @rename="renameTag" @delete="deleteTag" />
     <CollectionModal v-if="showCreateCollectionModal" @close="showCreateCollectionModal = false" @create="handleCreateCollection" />
-    <SettingsModal v-if="showSettingsModal" :autoSyncInterval="autoSyncInterval" @close="showSettingsModal = false" @update-interval="updateAutoSync" />
+    <CollectionManageModal v-if="showCollectionManageModal" :collections="collections" @close="showCollectionManageModal = false" @rename="handleRenameCollection" @delete="handleDeleteCollection" />
+    <TagsBrowserModal v-if="showTagsBrowserModal" :tags="tags" :tagCounts="tagCounts" :currentView="currentView" @close="showTagsBrowserModal = false" @select="handleTagSelect" />
     <NoteModal v-if="showNoteModal" :initialNote="editingNote" @close="showNoteModal = false" @save="saveNote" />
     <ShareModal v-if="showShareModal" :content="shareContent" @close="showShareModal = false" @share="handleShare" />
   </div>
@@ -175,12 +155,15 @@ import { getDB } from './db.js'
 // Components
 import AppSidebar from './components/layout/AppSidebar.vue'
 import StatsView from './components/stats/StatsView.vue'
+import TopTweetsView from './components/stats/TopTweetsView.vue'
 import BookmarkItem from './components/bookmarks/BookmarkItem.vue'
 import BulkActions from './components/bookmarks/BulkActions.vue'
 import ExportModal from './components/modals/ExportModal.vue'
 import TagModal from './components/modals/TagModal.vue'
 import CollectionModal from './components/modals/CollectionModal.vue'
-import SettingsModal from './components/modals/SettingsModal.vue'
+import CollectionManageModal from './components/modals/CollectionManageModal.vue'
+import TagsBrowserModal from './components/modals/TagsBrowserModal.vue'
+import SettingsView from './components/settings/SettingsView.vue'
 import NoteModal from './components/modals/NoteModal.vue'
 import ShareModal from './components/modals/ShareModal.vue'
 
@@ -189,37 +172,42 @@ import { useBookmarks } from './composables/useBookmarks.js'
 import { useSync } from './composables/useSync.js'
 import { useStats } from './composables/useStats.js'
 import { useKeyboard } from './composables/useKeyboard.js'
+import { useAI } from './composables/useAI.js'
 
 // --- Bookmarks ---
 const {
-  bookmarks, tags, collections, total, selectedIds,
+  bookmarks, tags, tagCounts, collections, total, selectedIds,
   loadingMore, searchQuery, showAdvancedSearch, currentView,
   openDropdownId, dropdownType, filters,
-  loadBookmarks, loadMore, loadTags, loadCollections,
+  loadBookmarks, loadMore, loadTags, loadTagCounts, loadCollections,
   addTag, removeTag, addToCollection,
   createTag, createCollection,
   deleteTag, renameTag,
   deleteBookmark, updateNote, toggleSelect, clearSelection,
   bulkTag, bulkAddToCollection, bulkExport,
-  clearFilters, toggleDropdown, debouncedSearch, switchView,
+  clearFilters, toggleDropdown, debouncedSearch, switchView, initHashListener,
 } = useBookmarks()
 
 // --- Sync ---
 const { syncState, syncMessage, startSync, dismissStatus, handleSyncMessage } = useSync()
 
 // --- Stats ---
-const { statsData, duplicates, loadStatsData, scanDuplicates, mergeDuplicate } = useStats()
+const { statsData, loadStatsData } = useStats()
+
+// --- AI ---
+const { aiConfig, aiProcessing, loadAIConfig, saveAIConfig, processSingleBookmark } = useAI()
+const aiProcessingId = ref(null)
 
 // --- State ---
 const stats = reactive({ bookmarkCount: 0 })
-const autoSyncInterval = ref(30)
 const scrollTrigger = ref(null)
 
 // Modals
 const showExportModal = ref(false)
 const showTagModal = ref(false)
 const showCreateCollectionModal = ref(false)
-const showSettingsModal = ref(false)
+const showCollectionManageModal = ref(false)
+const showTagsBrowserModal = ref(false)
 const showNoteModal = ref(false)
 const showShareModal = ref(false)
 const shareContent = ref('')
@@ -249,20 +237,21 @@ const { handleKeydown } = useKeyboard({
   toggleSelect,
   lightbox,
   closeLightbox,
-  modals: [showExportModal, showTagModal, showSettingsModal, showShareModal, showNoteModal, showCreateCollectionModal],
+  modals: [showExportModal, showTagModal, showShareModal, showNoteModal, showCreateCollectionModal, showCollectionManageModal, showTagsBrowserModal],
 })
 
 // --- Navigation ---
 function handleNavigate(view) {
   switchView(view)
-  if (view === 'stats') loadStatsData()
+  if (view === 'stats' || view === 'rankings') loadStatsData()
 }
 
 function handleAction(action) {
   if (action === 'export') showExportModal.value = true
   else if (action === 'manageTags') showTagModal.value = true
-  else if (action === 'settings') showSettingsModal.value = true
+  else if (action === 'settings') switchView('settings')
   else if (action === 'createCollection') showCreateCollectionModal.value = true
+  else if (action === 'manageCollections') showCollectionManageModal.value = true
 }
 
 // --- Sync ---
@@ -349,6 +338,23 @@ async function handleCreateCollection(name, desc) {
   showCreateCollectionModal.value = false
 }
 
+function handleTagSelect(tagName) {
+  switchView('tag:' + tagName)
+}
+
+async function handleRenameCollection(id, newName) {
+  const db = await getDB()
+  await db.updateCollection(id, { name: newName })
+  await loadCollections()
+}
+
+async function handleDeleteCollection(id) {
+  const db = await getDB()
+  await db.deleteCollection(id)
+  await loadCollections()
+  if (currentView.value === 'collection:' + id) switchView('all')
+}
+
 // --- Delete ---
 async function handleDelete(id) {
   if (!confirm('Delete this bookmark from local storage?')) return
@@ -413,22 +419,24 @@ async function handleShare(format) {
   navigator.clipboard.writeText(text).catch(() => {})
 }
 
-// --- Settings ---
-function loadAutoSyncInterval() {
-  chrome.runtime.sendMessage({ type: 'GET_AUTO_SYNC_INTERVAL' }, (response) => {
-    if (response?.interval !== undefined) autoSyncInterval.value = response.interval
-  })
+// --- AI ---
+async function handleAIProcess(bookmarkId) {
+  aiProcessingId.value = bookmarkId
+  try {
+    await processSingleBookmark(bookmarkId)
+    await loadBookmarks()
+    await loadTags()
+    await loadTagCounts()
+    await loadCollections()
+  } catch (e) {
+    console.error('[AI] Process failed:', e.message)
+  } finally {
+    aiProcessingId.value = null
+  }
 }
 
-function updateAutoSync(interval) {
-  autoSyncInterval.value = interval
-  chrome.runtime.sendMessage({ type: 'SET_AUTO_SYNC_INTERVAL', interval })
-}
-
-// --- Helpers ---
-function truncateText(text, maxLen) {
-  if (!text) return ''
-  return text.length <= maxLen ? text : text.substring(0, maxLen) + '...'
+async function handleSaveAIConfig(config) {
+  await saveAIConfig(config)
 }
 
 // --- Infinite scroll ---
@@ -451,7 +459,10 @@ function handleClickOutside(e) {
 
 // --- Lifecycle ---
 onMounted(() => {
-  loadBookmarks(); loadTags(); loadCollections(); loadStats(); loadAutoSyncInterval()
+  if (currentView.value === 'stats' || currentView.value === 'rankings') loadStatsData()
+  else loadBookmarks()
+  loadTags(); loadTagCounts(); loadCollections(); loadStats(); loadAIConfig()
+  initHashListener(loadStatsData)
   chrome.runtime.onMessage.addListener(onSyncMessage)
   document.addEventListener('click', handleClickOutside)
   document.addEventListener('keydown', handleKeydown)

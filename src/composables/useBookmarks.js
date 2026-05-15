@@ -4,13 +4,14 @@ import { getDB } from '../db.js'
 const bookmarks = ref([])
 const categories = ref([])
 const tags = ref([])
+const tagCounts = ref({})
 const collections = ref([])
 const total = ref(0)
 const selectedIds = ref(new Set())
 const loadingMore = ref(false)
 const searchQuery = ref('')
 const showAdvancedSearch = ref(false)
-const currentView = ref('all')
+const currentView = ref(decodeURIComponent(location.hash.slice(1)) || 'all')
 const openDropdownId = ref(null)
 const dropdownType = ref('cat')
 const filters = reactive({ author: '', dateFrom: '', dateTo: '', mediaType: '' })
@@ -81,6 +82,11 @@ export function useBookmarks() {
     tags.value = await db.getAllTags()
   }
 
+  async function loadTagCounts() {
+    const db = await getDB()
+    tagCounts.value = await db.getTagCounts()
+  }
+
   async function loadCollections() {
     const db = await getDB()
     collections.value = await db.getAllCollections()
@@ -104,12 +110,14 @@ export function useBookmarks() {
     await db.addTagToBookmark(bookmarkId, tagName)
     openDropdownId.value = null
     await loadBookmarks()
+    await loadTagCounts()
   }
 
   async function removeTag(bookmarkId, tagName) {
     const db = await getDB()
     await db.removeTagFromBookmark(bookmarkId, tagName)
     await loadBookmarks()
+    await loadTagCounts()
   }
 
   async function addToCollection(collectionId, bookmarkId) {
@@ -152,6 +160,7 @@ export function useBookmarks() {
     await db.deleteTag(name)
     if (currentView.value === 'tag:' + name) currentView.value = 'all'
     await loadTags()
+    await loadTagCounts()
     await loadBookmarks()
   }
 
@@ -166,6 +175,7 @@ export function useBookmarks() {
     const db = await getDB()
     await db.renameTag(oldName, newName)
     await loadTags()
+    await loadTagCounts()
     await loadBookmarks()
   }
 
@@ -208,6 +218,7 @@ export function useBookmarks() {
     }
     for (const id of selectedIds.value) await db.addTagToBookmark(id, tagName)
     await loadBookmarks()
+    await loadTagCounts()
     clearSelection()
   }
 
@@ -252,13 +263,26 @@ export function useBookmarks() {
 
   function switchView(view) {
     currentView.value = view
-    if (view !== 'stats' && view !== 'duplicates') loadBookmarks()
+    location.hash = view
+    if (view !== 'stats' && view !== 'rankings' && view !== 'settings') loadBookmarks()
+  }
+
+  function initHashListener(onStats) {
+    window.addEventListener('hashchange', () => {
+      const hash = decodeURIComponent(location.hash.slice(1)) || 'all'
+      if (hash !== currentView.value) {
+        currentView.value = hash
+        if (hash === 'stats' || hash === 'rankings') { onStats() }
+        else if (hash !== 'settings') { loadBookmarks() }
+      }
+    })
   }
 
   return {
     bookmarks,
     categories,
     tags,
+    tagCounts,
     collections,
     total,
     selectedIds,
@@ -273,6 +297,7 @@ export function useBookmarks() {
     loadMore,
     loadCategories,
     loadTags,
+    loadTagCounts,
     loadCollections,
     addCategory,
     removeCategory,
@@ -298,5 +323,6 @@ export function useBookmarks() {
     toggleDropdown,
     debouncedSearch,
     switchView,
+    initHashListener,
   }
 }

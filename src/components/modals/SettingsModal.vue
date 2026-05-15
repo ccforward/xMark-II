@@ -24,7 +24,10 @@
           <div class="shortcut-item"><kbd>&larr;</kbd> / <kbd>&rarr;</kbd> Lightbox navigation</div>
         </div>
       </div>
-      <button class="btn btn-secondary" style="margin-top:16px" @click="$emit('close')">Close</button>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn btn-primary" @click="$emit('open-ai-settings')">AI Settings</button>
+        <button class="btn btn-secondary" @click="$emit('close')">Close</button>
+      </div>
     </div>
   </div>
 </template>
@@ -33,7 +36,7 @@
 import { ref } from 'vue'
 
 const props = defineProps({ autoSyncInterval: Number })
-defineEmits(['close', 'update-interval'])
+defineEmits(['close', 'update-interval', 'open-ai-settings'])
 
 const interval = ref(props.autoSyncInterval || 30)
 </script>

@@ -3,7 +3,7 @@
 import Dexie from 'dexie';
 
 const DB_NAME = 'XBookmarkSync';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 class BookmarkDB extends Dexie {
   constructor() {
@@ -24,12 +24,27 @@ class BookmarkDB extends Dexie {
       syncState: 'key'
     });
 
+    this.version(4).stores({
+      bookmarks: '++id, tweetId, authorHandle, createdAt, bookmarkedAt, *categories, *tags, ai_processed',
+      categories: '++id, &name',
+      tags: '++id, &name',
+      collections: '++id, &name, createdAt',
+      cachedMedia: '&url',
+      syncState: 'key',
+      tokenUsage: '++id, model, date, timestamp'
+    }).upgrade(tx => {
+      return tx.table('bookmarks').toCollection().modify(b => {
+        b.ai_processed = false;
+      });
+    });
+
     this.bookmarks = this.table('bookmarks');
     this.categories = this.table('categories');
     this.tags = this.table('tags');
     this.collections = this.table('collections');
     this.cachedMedia = this.table('cachedMedia');
     this.syncState = this.table('syncState');
+    this.tokenUsage = this.table('tokenUsage');
   }
 
   // --- Sync State Helpers ---
@@ -164,6 +179,87 @@ class BookmarkDB extends Dexie {
     return await this.bookmarks.count();
   }
 
+  async getUnprocessedBookmarks() {
+    const all = await this.bookmarks.where('ai_processed').equals(0).toArray();
+    // Also include bookmarks without the field set
+    const unset = await this.bookmarks.filter(b => b.ai_processed === undefined || b.ai_processed === false).toArray();
+    const seen = new Set(all.map(b => b.id));
+    for (const b of unset) {
+      if (!seen.has(b.id)) all.push(b);
+    }
+    return all;
+  }
+
+  // --- Token Usage ---
+
+  async recordTokenUsage({ model, promptTokens, completionTokens, totalTokens, batchSize, timestamp }) {
+    const date = timestamp.split('T')[0]
+    const hour = new Date(timestamp).getHours()
+    await this.tokenUsage.add({
+      model,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      batchSize,
+      timestamp,
+      date,
+      hour,
+    })
+  }
+
+  async getTokenUsageStats() {
+    const all = await this.tokenUsage.toArray()
+    if (all.length === 0) return null
+
+    const total = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0 }
+    const byModel = {}
+    const byDate = {}
+
+    const now = new Date()
+    const currentMonth = now.toISOString().slice(0, 7) // "2026-05"
+    const monthTotal = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0 }
+
+    for (const r of all) {
+      total.promptTokens += r.promptTokens
+      total.completionTokens += r.completionTokens
+      total.totalTokens += r.totalTokens
+      total.requests++
+
+      // Monthly
+      if (r.date && r.date.startsWith(currentMonth)) {
+        monthTotal.promptTokens += r.promptTokens
+        monthTotal.completionTokens += r.completionTokens
+        monthTotal.totalTokens += r.totalTokens
+        monthTotal.requests++
+      }
+
+      // By model
+      if (!byModel[r.model]) byModel[r.model] = { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0 }
+      byModel[r.model].promptTokens += r.promptTokens
+      byModel[r.model].completionTokens += r.completionTokens
+      byModel[r.model].totalTokens += r.totalTokens
+      byModel[r.model].requests++
+
+      // By date with per-model breakdown
+      if (!byDate[r.date]) byDate[r.date] = { totalTokens: 0, requests: 0, models: {} }
+      byDate[r.date].totalTokens += r.totalTokens
+      byDate[r.date].requests += 1
+      if (!byDate[r.date].models[r.model]) byDate[r.date].models[r.model] = { totalTokens: 0, requests: 0 }
+      byDate[r.date].models[r.model].totalTokens += r.totalTokens
+      byDate[r.date].models[r.model].requests += 1
+    }
+
+    // Convert byDate to sorted array (newest first)
+    const dailyRecords = Object.entries(byDate)
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+
+    // Collect all model names for table headers
+    const modelNames = Object.keys(byModel).sort()
+
+    return { total, monthTotal, byModel, modelNames, dailyRecords }
+  }
+
   // --- Category Operations ---
 
   async getAllCategories() {
@@ -273,6 +369,17 @@ class BookmarkDB extends Dexie {
 
   async getAllTags() {
     return await this.tags.orderBy('name').toArray();
+  }
+
+  async getTagCounts() {
+    const allBookmarks = await this.bookmarks.toArray()
+    const counts = {}
+    for (const b of allBookmarks) {
+      for (const t of (b.tags || [])) {
+        counts[t] = (counts[t] || 0) + 1
+      }
+    }
+    return counts
   }
 
   async addTag(name, color = null) {
@@ -530,6 +637,31 @@ class BookmarkDB extends Dexie {
       avgViews: viewCount > 0 ? Math.round(totalViews / viewCount) : 0,
     };
 
+    // --- Top Tweets by Engagement ---
+    const pickFields = (b) => ({
+      tweetId: b.tweetId,
+      text: b.text,
+      authorHandle: b.authorHandle,
+      authorName: b.authorName,
+      authorAvatarUrl: b.authorAvatarUrl,
+      tweetUrl: b.tweetUrl,
+      mediaUrls: b.mediaUrls || [],
+      mediaTypes: b.mediaTypes || [],
+      videoUrls: b.videoUrls || [],
+      likeCount: b.likeCount || 0,
+      retweetCount: b.retweetCount || 0,
+      replyCount: b.replyCount || 0,
+      viewCount: b.viewCount || 0,
+      bookmarkCount: b.bookmarkCount || 0,
+    });
+    const topTweets = {
+      byLikes: [...allBookmarks].sort((a, b) => (b.likeCount || 0) - (a.likeCount || 0)).slice(0, 5).map(pickFields),
+      byReposts: [...allBookmarks].sort((a, b) => (b.retweetCount || 0) - (a.retweetCount || 0)).slice(0, 5).map(pickFields),
+      byReplies: [...allBookmarks].sort((a, b) => (b.replyCount || 0) - (a.replyCount || 0)).slice(0, 5).map(pickFields),
+      byViews: [...allBookmarks].sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0)).slice(0, 5).map(pickFields),
+      byBookmarks: [...allBookmarks].sort((a, b) => (b.bookmarkCount || 0) - (a.bookmarkCount || 0)).slice(0, 5).map(pickFields),
+    };
+
     return {
       total,
       uncategorized,
@@ -549,6 +681,7 @@ class BookmarkDB extends Dexie {
       weeklyData,
       languages,
       engagement,
+      topTweets,
     };
   }
 

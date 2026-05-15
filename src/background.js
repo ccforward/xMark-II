@@ -4,6 +4,7 @@
 // 2. Use chrome.scripting.executeScript to make paginated fetch from page context with captured headers
 
 import { getDB } from './db.js';
+import { AIProcessor } from './ai/aiProcessor.js';
 
 // ============================================
 // API parameter capture via webRequest
@@ -566,7 +567,7 @@ async function syncBookmarks({ fullSync = false } = {}) {
 
       if (!shouldStop && cursorBottom) {
         cursor = cursorBottom;
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 2000));
       } else {
         shouldStop = true;
       }
@@ -578,6 +579,25 @@ async function syncBookmarks({ fullSync = false } = {}) {
     await db.setSyncState('lastSyncTime', new Date().toISOString());
     await db.setSyncState('lastSyncNewCount', newCount);
     await db.setSyncState('totalBookmarks', await db.getBookmarkCount());
+
+    // AI auto-processing after sync
+    if (newCount > 0) {
+      try {
+        const { aiConfig } = await chrome.storage.local.get(['aiConfig']);
+        if (aiConfig?.autoProcessAfterSync && aiConfig?.activeModelId) {
+          const activeModel = aiConfig.models?.find(m => m.id === aiConfig.activeModelId);
+          if (activeModel) {
+            broadcastStatus({ state: 'ai_processing', message: `Processing ${newCount} bookmarks with AI...` });
+            const processor = new AIProcessor(activeModel, aiConfig);
+            await processor.processUnprocessed((progress) => {
+              broadcastStatus({ state: 'ai_processing', message: `AI: ${progress.processed}/${progress.total}` });
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('[XBS] AI processing error:', e.message);
+      }
+    }
 
     broadcastStatus({ state: 'completed', message: `Done! ${newCount} new bookmarks.`, newCount, totalBookmarks: await db.getBookmarkCount() });
     return { status: 'completed', newCount, totalBookmarks: await db.getBookmarkCount() };
@@ -601,33 +621,6 @@ function broadcastStatus(status) {
   chrome.runtime.sendMessage({ type: 'SYNC_STATUS_UPDATE', ...status }).catch(() => {});
   chrome.storage.local.set({ lastSyncStatus: status });
 }
-
-// ============================================
-// Configurable auto-sync with Chrome Alarms
-// ============================================
-
-async function setupAutoSync() {
-  const { autoSyncInterval = 30 } = await chrome.storage.local.get(['autoSyncInterval']);
-  // Clear existing alarm
-  await chrome.alarms.clear('periodicSync');
-  if (autoSyncInterval > 0) {
-    chrome.alarms.create('periodicSync', { periodInMinutes: autoSyncInterval });
-    console.log(`[XBS] Auto-sync set to every ${autoSyncInterval} minutes`);
-  } else {
-    console.log('[XBS] Auto-sync disabled');
-  }
-}
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'periodicSync') {
-    chrome.tabs.query({ url: 'https://x.com/*' }, (tabs) => {
-      if (tabs.length > 0) syncBookmarks({ fullSync: false }).catch(console.error);
-    });
-  }
-});
-
-// Initialize auto-sync on startup
-setupAutoSync();
 
 // ============================================
 // Context Menu (right-click on x.com)
@@ -733,18 +726,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message.type === 'SET_AUTO_SYNC_INTERVAL') {
-    chrome.storage.local.set({ autoSyncInterval: message.interval }).then(() => {
-      setupAutoSync();
+  if (message.type === 'GET_AI_CONFIG') {
+    chrome.storage.local.get(['aiConfig'], (result) => {
+      sendResponse(result.aiConfig || null);
+    });
+    return true;
+  }
+
+  if (message.type === 'SET_AI_CONFIG') {
+    chrome.storage.local.set({ aiConfig: message.config }).then(() => {
       sendResponse({ ok: true });
     });
     return true;
   }
 
-  if (message.type === 'GET_AUTO_SYNC_INTERVAL') {
-    chrome.storage.local.get(['autoSyncInterval'], (result) => {
-      sendResponse({ interval: result.autoSyncInterval ?? 30 });
-    });
+  if (message.type === 'AI_PROCESS_SINGLE') {
+    (async () => {
+      try {
+        const { aiConfig } = await chrome.storage.local.get(['aiConfig']);
+        const activeModel = aiConfig?.models?.find(m => m.id === aiConfig.activeModelId);
+        if (!activeModel) { sendResponse({ error: 'No active AI model configured' }); return; }
+        const processor = new AIProcessor(activeModel, aiConfig);
+        const result = await processor.processSingle(message.bookmarkId);
+        sendResponse({ ok: true, bookmark: result });
+      } catch (e) {
+        sendResponse({ error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'AI_PROCESS_UNPROCESSED') {
+    (async () => {
+      try {
+        const { aiConfig } = await chrome.storage.local.get(['aiConfig']);
+        const activeModel = aiConfig?.models?.find(m => m.id === aiConfig.activeModelId);
+        if (!activeModel) { sendResponse({ error: 'No active AI model configured' }); return; }
+        const processor = new AIProcessor(activeModel, aiConfig);
+        broadcastStatus({ state: 'ai_processing', message: 'Processing bookmarks with AI...' });
+        const result = await processor.processUnprocessed((progress) => {
+          broadcastStatus({ state: 'ai_processing', message: `AI: ${progress.processed}/${progress.total}` });
+        });
+        broadcastStatus({ state: 'completed', message: `AI processed ${result.processed} bookmarks.` });
+        sendResponse({ ok: true, ...result });
+      } catch (e) {
+        broadcastStatus({ state: 'error', message: `AI error: ${e.message}` });
+        sendResponse({ error: e.message });
+      }
+    })();
     return true;
   }
 });
