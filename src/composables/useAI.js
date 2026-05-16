@@ -13,7 +13,7 @@ export function useAI() {
         aiConfig.value = response || {
           models: [],
           activeModelId: null,
-          autoProcessAfterSync: true,
+          autoProcessAfterSync: false,
           systemPrompt: '',
           outputLanguage: 'en',
         }

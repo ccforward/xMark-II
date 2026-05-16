@@ -61,8 +61,13 @@
     </div>
 
     <div class="sidebar-section-title" style="margin-top:auto">Actions</div>
-    <div class="sidebar-item" @click="$emit('action', 'export')">
-      <Upload :size="18" /><span>Export</span>
+    <div class="sidebar-actions-row">
+      <button class="sidebar-action-btn full-width" @click="$emit('action', 'export')">
+        <Upload :size="14" /> Export
+      </button>
+      <button class="sidebar-action-btn full-width" @click="$emit('action', 'import')">
+        <Download :size="14" /> Import
+      </button>
     </div>
     <div class="sidebar-item" :class="{ active: currentView === 'settings' }" @click="$emit('navigate', 'settings')">
       <Settings :size="18" /><span>Settings</span>
@@ -72,7 +77,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { BookmarkCheck, BarChart3, Trophy, Library, Plus, Upload, Settings } from 'lucide-vue-next'
+import { BookmarkCheck, BarChart3, Trophy, Library, Plus, Upload, Settings, Download } from 'lucide-vue-next'
 
 const props = defineProps({
   currentView: String,

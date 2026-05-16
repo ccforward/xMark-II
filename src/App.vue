@@ -138,6 +138,7 @@
 
     <!-- Modals -->
     <ExportModal v-if="showExportModal" @close="showExportModal = false" @export="handleExport" />
+    <ImportModal v-if="showImportModal" @close="showImportModal = false" @imported="handleImported" />
     <TagModal v-if="showTagModal" :tags="tags" @close="showTagModal = false" @create="createTag" @rename="renameTag" @delete="deleteTag" />
     <CollectionModal v-if="showCreateCollectionModal" @close="showCreateCollectionModal = false" @create="handleCreateCollection" />
     <CollectionManageModal v-if="showCollectionManageModal" :collections="collections" @close="showCollectionManageModal = false" @rename="handleRenameCollection" @delete="handleDeleteCollection" />
@@ -159,6 +160,7 @@ import TopTweetsView from './components/stats/TopTweetsView.vue'
 import BookmarkItem from './components/bookmarks/BookmarkItem.vue'
 import BulkActions from './components/bookmarks/BulkActions.vue'
 import ExportModal from './components/modals/ExportModal.vue'
+import ImportModal from './components/modals/ImportModal.vue'
 import TagModal from './components/modals/TagModal.vue'
 import CollectionModal from './components/modals/CollectionModal.vue'
 import CollectionManageModal from './components/modals/CollectionManageModal.vue'
@@ -204,6 +206,7 @@ const scrollTrigger = ref(null)
 
 // Modals
 const showExportModal = ref(false)
+const showImportModal = ref(false)
 const showTagModal = ref(false)
 const showCreateCollectionModal = ref(false)
 const showCollectionManageModal = ref(false)
@@ -237,7 +240,7 @@ const { handleKeydown } = useKeyboard({
   toggleSelect,
   lightbox,
   closeLightbox,
-  modals: [showExportModal, showTagModal, showShareModal, showNoteModal, showCreateCollectionModal, showCollectionManageModal, showTagsBrowserModal],
+  modals: [showExportModal, showImportModal, showTagModal, showShareModal, showNoteModal, showCreateCollectionModal, showCollectionManageModal, showTagsBrowserModal],
 })
 
 // --- Navigation ---
@@ -248,6 +251,7 @@ function handleNavigate(view) {
 
 function handleAction(action) {
   if (action === 'export') showExportModal.value = true
+  else if (action === 'import') showImportModal.value = true
   else if (action === 'manageTags') showTagModal.value = true
   else if (action === 'settings') switchView('settings')
   else if (action === 'createCollection') showCreateCollectionModal.value = true
@@ -382,6 +386,14 @@ async function handleExport(format) {
   a.href = url; a.download = `${filename}.${format === 'markdown' ? 'md' : format}`; a.click()
   URL.revokeObjectURL(url)
   showExportModal.value = false
+}
+
+async function handleImported(result) {
+  await loadBookmarks()
+  await loadTags()
+  await loadTagCounts()
+  await loadCollections()
+  await loadStats()
 }
 
 async function handleBulkExport() {

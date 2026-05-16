@@ -5,6 +5,42 @@ import Dexie from 'dexie';
 const DB_NAME = 'XBookmarkSync';
 const DB_VERSION = 4;
 
+// Convert exported JSON back to internal bookmark format
+function mapImportItem(item) {
+  const stats = item.stats || {}
+  return {
+    tweetId: item.tweetId,
+    text: item.text || '',
+    fullText: item.text || '',
+    noteText: item.noteText || null,
+    authorName: item.author?.name || '',
+    authorHandle: item.author?.handle || '',
+    authorAvatarUrl: item.author?.avatar || '',
+    tweetUrl: item.url || '',
+    mediaUrls: item.mediaUrls || [],
+    mediaTypes: [],
+    videoUrls: item.videoUrls || [],
+    videoThumbnails: [],
+    urls: [],
+    createdAt: item.createdAt,
+    categories: item.categories || [],
+    tags: item.tags || [],
+    notes: item.notes || '',
+    likeCount: stats.likes || 0,
+    retweetCount: stats.retweets || 0,
+    replyCount: stats.replies || 0,
+    bookmarkCount: stats.bookmarks || 0,
+    viewCount: stats.views || 0,
+    ai_processed: false,
+    ai_processed_at: null,
+    ai_summary: null,
+    ai_tags: [],
+    ai_collection: null,
+    ai_collection_is_new: false,
+    ai_vision_notes: null,
+  }
+}
+
 class BookmarkDB extends Dexie {
   constructor() {
     super(DB_NAME);
@@ -322,6 +358,52 @@ class BookmarkDB extends Dexie {
       ...(includeCategories ? { categories: b.categories || [], notes: b.notes || '' } : {}),
       stats: { likes: b.likeCount || 0, retweets: b.retweetCount || 0, replies: b.replyCount || 0, bookmarks: b.bookmarkCount || 0, views: b.viewCount || 0 }
     }));
+  }
+
+  async importFromJSON(jsonData, { onConflict = 'skip' } = {}) {
+    if (!Array.isArray(jsonData)) throw new Error('Invalid format: expected an array of bookmarks')
+
+    const imported = { bookmarks: 0, categories: 0, tags: 0, skipped: 0 }
+    const batchSize = 100
+
+    for (let i = 0; i < jsonData.length; i += batchSize) {
+      const batch = jsonData.slice(i, i + batchSize)
+      for (const item of batch) {
+        if (!item.tweetId) { imported.skipped++; continue }
+
+        const existing = await this.bookmarks.where('tweetId').equals(item.tweetId).first()
+        if (existing) {
+          if (onConflict === 'skip') { imported.skipped++; continue }
+          // onConflict === 'overwrite': update existing
+          const bookmarkData = mapImportItem(item)
+          await this.bookmarks.update(existing.id, bookmarkData)
+          imported.bookmarks++
+        } else {
+          const bookmarkData = mapImportItem(item)
+          await this.bookmarks.add(bookmarkData)
+          imported.bookmarks++
+        }
+
+        // Import categories
+        if (item.categories?.length) {
+          for (const catName of item.categories) {
+            const exists = await this.categories.where('name').equals(catName).first()
+            if (!exists) { await this.categories.add({ name: catName, createdAt: new Date().toISOString() }); imported.categories++ }
+            // Link is handled in mapImportItem via categories array
+          }
+        }
+
+        // Import tags
+        if (item.tags?.length) {
+          for (const tagName of item.tags) {
+            const exists = await this.tags.where('name').equals(tagName).first()
+            if (!exists) { await this.tags.add({ name: tagName, createdAt: new Date().toISOString() }); imported.tags++ }
+          }
+        }
+      }
+    }
+
+    return imported
   }
 
   async exportAsCSV({ category = null } = {}) {

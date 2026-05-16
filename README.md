@@ -40,6 +40,7 @@ A Chrome extension that syncs, organizes, and intelligently analyzes your X (Twi
 ### Utilities
 
 - **Export** — JSON, CSV, or Markdown. Export all or just selected bookmarks.
+- **Import** — Re-import JSON exports back into the database. Supports conflict resolution (skip or overwrite duplicates).
 - **Media Lightbox** — Click images/videos to view in a full-screen lightbox with keyboard navigation.
 - **Notes** — Add personal notes to any bookmark.
 - **Duplicate Detection** — Find and merge duplicate bookmarks.

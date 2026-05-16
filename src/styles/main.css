@@ -1970,6 +1970,62 @@ textarea.form-input { min-height: 80px; resize: vertical; font-family: inherit; 
   background: var(--bg-tertiary);
   color: var(--text);
 }
+.sidebar-actions-row {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+}
+.sidebar-action-btn.full-width {
+  flex: 1;
+  justify-content: center;
+}
+.sidebar-action-btn.full-width:hover {
+  background: var(--bg-tertiary);
+  color: var(--text);
+}
+
+/* Import Modal */
+.import-preview {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xs);
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+.import-preview-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+}
+.import-preview-value {
+  font-weight: 600;
+}
+.import-preview-value.highlight {
+  color: var(--accent);
+}
+.import-result {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xs);
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--success);
+}
+.import-result-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 14px;
+}
+.import-result-value {
+  font-weight: 600;
+}
+.import-result-value.success {
+  color: var(--success);
+}
+.import-result-value.warning {
+  color: var(--warning);
+}
 
 /* Tags Browser Modal */
 .tags-modal-overlay {

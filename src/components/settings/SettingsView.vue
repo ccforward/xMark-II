@@ -196,7 +196,7 @@ const emit = defineEmits(['save-ai-config'])
 const localConfig = reactive({
   models: [],
   activeModelId: null,
-  autoProcessAfterSync: true,
+  autoProcessAfterSync: false,
   systemPrompt: '',
   outputLanguage: 'en',
 })
