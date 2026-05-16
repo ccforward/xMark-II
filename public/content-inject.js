@@ -37,7 +37,7 @@
     const response = await originalFetch.apply(this, args);
 
     try {
-      if (url.includes('/i/api/graphql/') && url.includes('Bookmarks')) {
+      if (url.includes('/i/api/graphql/') && url.includes('Bookmark')) {
         window.__xbs_capturedRequest = { url, headers: requestHeaders, capturedAt: Date.now() };
         window.postMessage({ type: 'XBS_API_PARAMS', data: { url, headers: requestHeaders, capturedAt: Date.now() } }, '*');
 

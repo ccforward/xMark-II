@@ -13,10 +13,10 @@ import { AIProcessor } from './ai/aiProcessor.js';
 // Store captured API request details (URL + headers) from the browser's Network layer
 let capturedApiInfo = null;
 
-// Listen for Bookmarks API calls at the network level — this ALWAYS works
+// Listen for X API calls at the network level — capture headers from any bookmark-related call
 chrome.webRequest.onSendHeaders.addListener(
   (details) => {
-    if (details.url.includes('/i/api/graphql/') && details.url.includes('Bookmarks')) {
+    if (details.url.includes('/i/api/graphql/') && details.url.includes('Bookmark')) {
       const headers = {};
       for (const h of details.requestHeaders || []) {
         headers[h.name.toLowerCase()] = h.value;
@@ -26,8 +26,6 @@ chrome.webRequest.onSendHeaders.addListener(
         headers,
         capturedAt: Date.now(),
       };
-      console.log('[XBS] Captured API params via webRequest');
-      // Persist to storage
       chrome.storage.local.set({ apiParams: capturedApiInfo });
     }
   },
@@ -121,29 +119,25 @@ async function waitForApiParams(timeoutMs = 20000) {
 
 // Ensure content scripts are injected and responsive in the given tab
 async function ensureContentScript(tabId) {
-  // Try pinging the content script
   try {
     const resp = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-    if (resp?.ok) return; // Already alive
+    if (resp?.ok) return;
   } catch {}
 
-  // Content script not responding — inject both scripts
-  console.log('[XBS] Content script not responding, injecting...');
+  // Content script not responding — reload the tab to trigger re-injection
+  // (manifest.json already declares the content scripts, no need to inject manually)
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content-inject.js'],
-      world: 'MAIN',
-    });
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['content.js'],
-    });
-    // Wait a moment for scripts to initialize
-    await new Promise(r => setTimeout(r, 500));
+    await chrome.tabs.reload(tabId);
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      try {
+        const resp = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+        if (resp?.ok) return;
+      } catch {}
+    }
+    throw new Error('Content script did not respond after reload');
   } catch (e) {
-    console.warn('[XBS] Failed to inject content scripts:', e.message);
-    throw new Error('Cannot inject content scripts. Make sure the x.com tab is fully loaded.');
+    throw new Error('Content script not responding. Try opening x.com in a new tab and syncing again.');
   }
 }
 
@@ -525,10 +519,7 @@ async function syncBookmarks({ fullSync = false } = {}) {
         throw e;
       }
 
-      console.log(`[XBS] Raw API response (page ${page}):`, JSON.parse(JSON.stringify(data)));
-
       const { bookmarks, cursorBottom } = parseBookmarksResponse(data);
-
       console.log(`[XBS] Page ${page}: ${bookmarks.length} bookmarks, cursor: ${cursorBottom ? 'yes' : 'no'}`);
 
       // Log first quoted tweet structure for debugging
