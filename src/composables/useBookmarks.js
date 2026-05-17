@@ -15,6 +15,7 @@ const currentView = ref(decodeURIComponent(location.hash.slice(1)) || 'all')
 const openDropdownId = ref(null)
 const dropdownType = ref('cat')
 const filters = reactive({ author: '', dateFrom: '', dateTo: '', mediaType: '' })
+const sortOrder = ref('desc')
 
 const pageSize = 50
 
@@ -24,8 +25,8 @@ export function useBookmarks() {
     const params = {
       offset: 0,
       limit: pageSize,
-      sort: 'createdAt',
-      order: 'desc',
+      sort: 'bookmarkedAt',
+      order: sortOrder.value,
       search: searchQuery.value || null,
       author: filters.author || null,
       dateFrom: filters.dateFrom || null,
@@ -51,8 +52,8 @@ export function useBookmarks() {
     const params = {
       offset: bookmarks.value.length,
       limit: pageSize,
-      sort: 'createdAt',
-      order: 'desc',
+      sort: 'bookmarkedAt',
+      order: sortOrder.value,
       search: searchQuery.value || null,
       author: filters.author || null,
       dateFrom: filters.dateFrom || null,
@@ -70,6 +71,12 @@ export function useBookmarks() {
     bookmarks.value = [...bookmarks.value, ...result.results]
     total.value = result.total
     loadingMore.value = false
+  }
+
+  function setSortOrder(order) {
+    sortOrder.value = order
+    loadBookmarks()
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function loadCategories() {
@@ -293,6 +300,7 @@ export function useBookmarks() {
     openDropdownId,
     dropdownType,
     filters,
+    sortOrder,
     loadBookmarks,
     loadMore,
     loadCategories,
@@ -323,6 +331,7 @@ export function useBookmarks() {
     toggleDropdown,
     debouncedSearch,
     switchView,
+    setSortOrder,
     initHashListener,
   }
 }

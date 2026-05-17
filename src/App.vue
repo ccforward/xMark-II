@@ -34,6 +34,14 @@
             <button class="btn btn-secondary btn-sm" @click="showAdvancedSearch = !showAdvancedSearch">
               {{ showAdvancedSearch ? 'Simple' : 'Advanced' }}
             </button>
+            <div class="sort-toggle">
+              <button class="btn btn-secondary btn-sm" :class="{ active: sortOrder === 'desc' }" @click="setSortOrder('desc')" title="Newest first">
+                <ArrowDown :size="14" /> Newest
+              </button>
+              <button class="btn btn-secondary btn-sm" :class="{ active: sortOrder === 'asc' }" @click="setSortOrder('asc')" title="Oldest first">
+                <ArrowUp :size="14" /> Oldest
+              </button>
+            </div>
             <button class="btn btn-primary" :disabled="syncState === 'syncing'" @click="handleSync(false)">
               <span v-if="syncState === 'syncing'" class="spinner"></span>
               {{ syncState === 'syncing' ? 'Syncing...' : 'Sync' }}
@@ -69,10 +77,10 @@
           <button class="btn btn-sm btn-secondary" @click="clearFilters">Clear Filters</button>
         </div>
 
-        <!-- Sync Status -->
-        <div v-if="syncMessage" class="sync-status" :class="syncState">
-          <span style="flex:1;white-space:pre-wrap">{{ syncMessage }}</span>
-          <button v-if="syncState === 'error'" class="icon-btn" style="color:inherit;font-size:16px" @click="dismissStatus">&times;</button>
+        <!-- Sync Status (floating) -->
+        <div v-if="syncMessage" class="sync-status-floating" :class="syncState">
+          <span class="sync-status-text">{{ syncMessage }}</span>
+          <button v-if="syncState === 'error'" class="sync-status-close" @click="dismissStatus">&times;</button>
         </div>
 
         <!-- Bulk Actions -->
@@ -150,7 +158,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Search } from 'lucide-vue-next'
+import { Search, ArrowDown, ArrowUp } from 'lucide-vue-next'
 import { getDB } from './db.js'
 
 // Components
@@ -180,14 +188,14 @@ import { useAI } from './composables/useAI.js'
 const {
   bookmarks, tags, tagCounts, collections, total, selectedIds,
   loadingMore, searchQuery, showAdvancedSearch, currentView,
-  openDropdownId, dropdownType, filters,
+  openDropdownId, dropdownType, filters, sortOrder,
   loadBookmarks, loadMore, loadTags, loadTagCounts, loadCollections,
   addTag, removeTag, addToCollection,
   createTag, createCollection,
   deleteTag, renameTag,
   deleteBookmark, updateNote, toggleSelect, clearSelection,
   bulkTag, bulkAddToCollection, bulkExport,
-  clearFilters, toggleDropdown, debouncedSearch, switchView, initHashListener,
+  clearFilters, toggleDropdown, debouncedSearch, switchView, setSortOrder, initHashListener,
 } = useBookmarks()
 
 // --- Sync ---

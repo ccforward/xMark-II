@@ -20,14 +20,14 @@
         <a :href="bookmark.tweetUrl" target="_blank" class="bookmark-date">{{ formatDate(bookmark.createdAt) }}</a>
       </div>
 
-      <a :href="bookmark.tweetUrl" target="_blank" class="bookmark-text-link">
+      <div class="bookmark-text-link" @click="handleTextClick">
         <div v-if="bookmark.noteText" class="bookmark-text note-text">
           <span class="note-badge">Note</span>
-          {{ truncateText(bookmark.noteText, 500) }}
+          <span v-html="renderTweetText(bookmark.noteText)"></span>
         </div>
-        <div v-else-if="bookmark.text" class="bookmark-text">{{ bookmark.text }}</div>
+        <div v-else-if="bookmark.text" class="bookmark-text" v-html="renderTweetText(bookmark.text)"></div>
         <div v-else-if="!bookmark.article" class="bookmark-text empty-text">[No text content]</div>
-      </a>
+      </div>
 
       <!-- Article Card -->
       <a v-if="bookmark.article" :href="bookmark.article.articleUrl || bookmark.tweetUrl" target="_blank" class="article-card">
@@ -214,6 +214,26 @@ function formatDate(dateStr) {
   if (isNaN(d.getTime())) return dateStr
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+}
+
+function renderTweetText(text) {
+  if (!text) return ''
+  // Decode HTML entities first
+  const el = document.createElement('textarea')
+  el.innerHTML = text
+  let decoded = el.value
+  // Make t.co URLs clickable
+  decoded = decoded.replace(/(https?:\/\/t\.co\/\w+)/g, '<a href="$1" target="_blank" class="tweet-inline-link" onclick="event.stopPropagation()">$1</a>')
+  return decoded
+}
+
+function handleTextClick(e) {
+  // Don't navigate if user is selecting text
+  const selection = window.getSelection()
+  if (selection && selection.toString().length > 0) return
+  // Don't navigate if clicking an inline link
+  if (e.target.closest('a')) return
+  window.open(props.bookmark.tweetUrl, '_blank')
 }
 
 function truncateText(text, maxLen) {

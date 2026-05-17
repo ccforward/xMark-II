@@ -209,7 +209,21 @@ async function fetchBookmarksPage(tabId, cursor = null) {
       await chrome.storage.local.remove('apiParams');
       throw new Error('API 404. Params cleared. Reload x.com/i/bookmarks and retry.');
     }
-    throw new Error(`API error: ${data.status || ''} ${data.statusText || data.message || ''}`);
+    // Log detailed error for debugging 422 and other errors
+    if (data.status === 422) {
+      console.error('[XBS] 422 Error - URL:', url.substring(0, 200));
+      console.error('[XBS] 422 Error - Body:', data.body);
+      try {
+        console.error('[XBS] 422 Error - Variables:', JSON.parse(new URL(url).searchParams.get('variables') || '{}'));
+      } catch {}
+      // Clear stale params
+      capturedApiInfo = null;
+      await chrome.storage.local.remove('apiParams');
+      // Signal that sync should auto-recover by reloading bookmarks page
+      throw new Error('XBS_422_RECOVERABLE');
+    }
+    const detail = data.body ? ` - ${data.body.substring(0, 200)}` : '';
+    throw new Error(`API error: ${data.status || ''} ${data.statusText || data.message || ''}${detail}`);
   }
 
   return data.data;
@@ -300,17 +314,28 @@ function parseTweetData(tweetResult) {
     }
   }
 
-  // External URLs (excluding media t.co links)
-  const mediaShortUrls = new Set((tweet.entities?.media || []).map(m => m.url));
-  const urls = (tweet.entities?.urls || [])
-    .filter(u => !mediaShortUrls.has(u.url))
-    .map(u => u.expanded_url || u.url);
-
   const tweetId = tweetResult.rest_id || tweet.id_str || tweet.id;
   if (!tweetId) return null;
 
-  // Clean text: remove trailing t.co links
-  const cleanText = (text || '').replace(/\s*https:\/\/t\.co\/\w+\s*$/g, '').trim();
+  const tweetUrl = `https://x.com/${screenName}/status/${tweetId}`;
+
+  // X API auto-appends a t.co link in full_text for media (photos/videos).
+  // These are in entities.media[].url — remove only these from the text.
+  // All other links (external URLs in entities.urls) are kept as-is.
+  const mediaShortUrls = new Set(
+    (tweet.entities?.media || []).map(m => m.url).filter(Boolean)
+  );
+  let cleanText = text || '';
+  for (const mediaUrl of mediaShortUrls) {
+    const escaped = mediaUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    cleanText = cleanText.replace(new RegExp('\\s*' + escaped, 'g'), '');
+  }
+  cleanText = cleanText.trim();
+
+  // External URLs list (expanded, excluding media t.co links)
+  const urls = (tweet.entities?.urls || [])
+    .filter(u => !mediaShortUrls.has(u.url))
+    .map(u => u.expanded_url || u.url);
 
   return {
     tweetId: String(tweetId),
@@ -506,6 +531,20 @@ async function syncBookmarks({ fullSync = false } = {}) {
     let newCount = 0;
     const existingTweetIds = new Set((await db.bookmarks.toArray()).map(b => b.tweetId));
     let shouldStop = false;
+    const syncStartTime = new Date().toISOString();
+
+    // Backfill bookmarkedAt for existing records that lack it
+    try {
+      const missingBookmarkedAt = await db.bookmarks.filter(b => !b.bookmarkedAt).toArray();
+      if (missingBookmarkedAt.length > 0) {
+        console.log(`[XBS] Backfilling bookmarkedAt for ${missingBookmarkedAt.length} records...`);
+        for (const b of missingBookmarkedAt) {
+          await db.bookmarks.update(b.id, { bookmarkedAt: b.createdAt || syncStartTime });
+        }
+      }
+    } catch (e) {
+      console.warn('[XBS] Failed to backfill bookmarkedAt:', e.message);
+    }
 
     while (!shouldStop) {
       page++;
@@ -515,8 +554,21 @@ async function syncBookmarks({ fullSync = false } = {}) {
       try {
         data = await fetchBookmarksPage(tab.id, cursor);
       } catch (e) {
-        broadcastStatus({ state: 'error', message: e.message });
-        throw e;
+        // Auto-recover from 422 by reloading bookmarks page to get fresh params
+        if (e.message === 'XBS_422_RECOVERABLE') {
+          console.log('[XBS] 422 detected, auto-recovering by reloading bookmarks page...');
+          broadcastStatus({ state: 'syncing', message: 'Refreshing auth params...' });
+          await triggerBookmarksApiCall(tab);
+          const freshParams = await waitForApiParams(20000);
+          if (!freshParams?.url || !freshParams?.headers) {
+            throw new Error('Could not capture fresh API params. Please reload x.com/i/bookmarks manually and retry.');
+          }
+          broadcastStatus({ state: 'syncing', message: `Retrying page ${page}...` });
+          data = await fetchBookmarksPage(tab.id, cursor);
+        } else {
+          broadcastStatus({ state: 'error', message: e.message });
+          throw e;
+        }
       }
 
       const { bookmarks, cursorBottom } = parseBookmarksResponse(data);
@@ -547,12 +599,21 @@ async function syncBookmarks({ fullSync = false } = {}) {
 
       if (bookmarks.length === 0) { shouldStop = true; break; }
 
+      // Calculate bookmarkedAt for new bookmarks in this page
+      // X returns bookmarks newest-first, so the first one should have the latest timestamp
+      // Use a staggered approach: each new bookmark gets a slightly earlier timestamp
+      // This ensures proper sorting: newest synced bookmarks appear at the top
+      let syncIndex = 0;
       for (const bm of bookmarks) {
         if (!fullSync && existingTweetIds.has(bm.tweetId)) { shouldStop = true; break; }
         if (!existingTweetIds.has(bm.tweetId)) {
+          // Subtract syncIndex seconds from now, so first bookmark has the latest time
+          const bmTime = new Date(Date.now() - syncIndex * 1000).toISOString();
+          bm.bookmarkedAt = bmTime;
           allBookmarks.push(bm);
           existingTweetIds.add(bm.tweetId);
           newCount++;
+          syncIndex++;
         }
       }
 
@@ -686,6 +747,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'BOOKMARK_DATA_CAPTURED') {
     const { bookmarks } = parseBookmarksResponse(message.data);
     if (bookmarks.length > 0) {
+      const now = new Date().toISOString();
+      for (const bm of bookmarks) {
+        if (!bm.bookmarkedAt) bm.bookmarkedAt = now;
+      }
       getDB().then(db => db.upsertBookmarks(bookmarks)).then(() => sendResponse({ ok: true, count: bookmarks.length }));
     } else {
       sendResponse({ ok: true, count: 0 });

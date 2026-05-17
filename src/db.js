@@ -101,6 +101,7 @@ class BookmarkDB extends Dexie {
     if (existing) {
       const merged = {
         ...tweetData,
+        bookmarkedAt: tweetData.bookmarkedAt || existing.bookmarkedAt || tweetData.createdAt || new Date().toISOString(),
         categories: [...new Set([...(existing.categories || []), ...(tweetData.categories || [])])],
         notes: existing.notes || tweetData.notes,
         isRead: existing.isRead || tweetData.isRead,
@@ -108,7 +109,11 @@ class BookmarkDB extends Dexie {
       await this.bookmarks.update(existing.id, merged);
       return existing.id;
     } else {
-      return await this.bookmarks.add(tweetData);
+      const record = {
+        ...tweetData,
+        bookmarkedAt: tweetData.bookmarkedAt || tweetData.createdAt || new Date().toISOString(),
+      };
+      return await this.bookmarks.add(record);
     }
   }
 
@@ -122,14 +127,10 @@ class BookmarkDB extends Dexie {
   }
 
   async getBookmarks({ offset = 0, limit = 50, category = null, search = null, sort = 'createdAt', order = 'desc', tag = null, collectionId = null, dateFrom = null, dateTo = null, author = null, hasMedia = null, hasVideo = null } = {}) {
-    let collection = this.bookmarks.orderBy(sort);
+    // Fetch all records first, then apply filters and sorting in JS
+    let results = await this.bookmarks.toArray();
 
-    if (order === 'desc') {
-      collection = collection.reverse();
-    }
-
-    let results = await collection.toArray();
-
+    // Apply category filter
     if (category && category !== 'all') {
       if (category === 'uncategorized') {
         results = results.filter(b => !b.categories || b.categories.length === 0);
@@ -187,6 +188,22 @@ class BookmarkDB extends Dexie {
         return keywords.every(k => haystack.includes(k));
       });
     }
+
+    // Sort in JS memory with fallback support
+    results.sort((a, b) => {
+      let valA, valB;
+      if (sort === 'bookmarkedAt') {
+        // Fallback to createdAt if bookmarkedAt is missing
+        valA = a.bookmarkedAt || a.createdAt || '';
+        valB = b.bookmarkedAt || b.createdAt || '';
+      } else {
+        valA = a[sort] || '';
+        valB = b[sort] || '';
+      }
+      // Compare as strings (ISO dates work with string comparison)
+      const cmp = valA < valB ? -1 : valA > valB ? 1 : 0;
+      return order === 'desc' ? -cmp : cmp;
+    });
 
     const total = results.length;
     results = results.slice(offset, offset + limit);
