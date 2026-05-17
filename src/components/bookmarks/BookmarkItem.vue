@@ -87,6 +87,15 @@
         </span>
       </div>
 
+      <!-- Collections -->
+      <div v-if="bookmarkCollections.length" class="bookmark-collections">
+        <span v-for="col in bookmarkCollections" :key="col.id" class="collection-badge">
+          <Library :size="12" />
+          {{ col.name }}
+          <button class="tag-remove" @click="$emit('remove-from-collection', col.id, bookmark.id)">&times;</button>
+        </span>
+      </div>
+
       <!-- Notes -->
       <div v-if="bookmark.notes" class="bookmark-notes">
         <span class="notes-label">Note:</span> {{ bookmark.notes }}
@@ -122,23 +131,29 @@
           <button class="icon-btn" title="Process with AI" :disabled="aiProcessingThis" @click="$emit('ai-process', bookmark.id)">
             <Sparkles :size="16" :class="{ 'ai-spinning': aiProcessingThis }" />
           </button>
-          <div class="category-dropdown">
-            <button class="icon-btn" title="Add tag" @click="$emit('toggle-dropdown', bookmark.id, 'tag')"><Hash :size="16" /></button>
-            <div v-if="dropdownOpen === 'tag'" class="category-dropdown-menu">
-              <div v-for="tag in tags" :key="tag.name" class="category-dropdown-item" :class="{ assigned: bookmark.tags?.includes(tag.name) }" @click="$emit('add-tag', bookmark.id, tag.name)">
-                <span class="tag-dot" :style="{ background: tag.color }"></span>
-                {{ tag.name }}
+          <div class="category-dropdown" ref="tagDropdownRef">
+            <button class="icon-btn" title="Add tag" @click="handleToggleDropdown('tag', $event)"><Hash :size="16" /></button>
+            <div v-if="dropdownOpen === 'tag'" class="category-dropdown-menu" :class="{ 'dropdown-up': dropdownUp }">
+              <div v-for="tag in tags" :key="tag.name" class="category-dropdown-item" :class="{ assigned: bookmark.tags?.includes(tag.name) }">
+                <span class="dropdown-item-content" @click="$emit('add-tag', bookmark.id, tag.name)">
+                  <span class="tag-dot" :style="{ background: tag.color }"></span>
+                  {{ tag.name }}
+                </span>
+                <button v-if="bookmark.tags?.includes(tag.name)" class="dropdown-item-remove" @click.stop="$emit('remove-tag', bookmark.id, tag.name)" title="Remove tag">&times;</button>
               </div>
               <div class="category-dropdown-item" @click="$emit('prompt-new-tag', bookmark.id)">+ New tag...</div>
             </div>
           </div>
-          <div class="category-dropdown">
-            <button class="icon-btn" title="Add to collection" @click="$emit('toggle-dropdown', bookmark.id, 'col')"><Library :size="16" /></button>
-            <div v-if="dropdownOpen === 'col'" class="category-dropdown-menu">
-              <div v-for="col in collections" :key="col.id" class="category-dropdown-item" @click="$emit('add-to-collection', col.id, bookmark.id)">
-                <Library :size="14" /> {{ col.name }}
+          <div class="category-dropdown" ref="colDropdownRef">
+            <button class="icon-btn" title="Add to collection" @click="handleToggleDropdown('col', $event)"><Library :size="16" /></button>
+            <div v-if="dropdownOpen === 'col'" class="category-dropdown-menu" :class="{ 'dropdown-up': dropdownUp }">
+              <div v-for="col in collections" :key="col.id" class="category-dropdown-item" :class="{ assigned: isInCollection(col) }">
+                <span class="dropdown-item-content" @click="$emit('add-to-collection', col.id, bookmark.id)">
+                  <Library :size="14" /> {{ col.name }}
+                </span>
+                <button v-if="isInCollection(col)" class="dropdown-item-remove" @click.stop="$emit('remove-from-collection', col.id, bookmark.id)" title="Remove from collection">&times;</button>
               </div>
-              <div v-if="collections.length === 0" class="category-dropdown-item" style="color:var(--text-muted)">No collections yet</div>
+              <div class="category-dropdown-item" @click="$emit('prompt-new-collection', bookmark.id)">+ New collection...</div>
             </div>
           </div>
           <button class="icon-btn" title="Add note" @click="$emit('edit-note', bookmark)"><PenLine :size="16" /></button>
@@ -164,13 +179,20 @@ const props = defineProps({
   aiProcessingThis: Boolean,
 })
 
-defineEmits([
+const emit = defineEmits([
   'toggle-select', 'open-media', 'remove-tag',
-  'toggle-dropdown', 'add-tag', 'add-to-collection',
-  'prompt-new-tag', 'edit-note', 'delete', 'ai-process',
+  'toggle-dropdown', 'add-tag', 'add-to-collection', 'remove-from-collection',
+  'prompt-new-tag', 'prompt-new-collection', 'edit-note', 'delete', 'ai-process',
 ])
 
 const aiExpanded = ref(false)
+const tagDropdownRef = ref(null)
+const colDropdownRef = ref(null)
+const dropdownUp = ref(false)
+
+const bookmarkCollections = computed(() => {
+  return (props.collections || []).filter(col => (col.bookmarkIds || []).includes(props.bookmark.id))
+})
 
 const dropdownOpen = computed(() => {
   if (props.openDropdownId === props.bookmark.id) return props.dropdownType
@@ -234,6 +256,19 @@ function handleTextClick(e) {
   // Don't navigate if clicking an inline link
   if (e.target.closest('a')) return
   window.open(props.bookmark.tweetUrl, '_blank')
+}
+
+function handleToggleDropdown(type, e) {
+  // Calculate if dropdown would overflow viewport
+  const btn = e.currentTarget
+  const rect = btn.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - rect.bottom
+  dropdownUp.value = spaceBelow < 280
+  emit('toggle-dropdown', props.bookmark.id, type)
+}
+
+function isInCollection(col) {
+  return (col.bookmarkIds || []).includes(props.bookmark.id)
 }
 
 function truncateText(text, maxLen) {

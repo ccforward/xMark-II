@@ -8,7 +8,7 @@
 
     <EngagementCards v-if="statsData.engagement" :engagement="statsData.engagement" />
 
-    <ActivityHeatmap v-if="statsData.heatmap" :heatmap="statsData.heatmap" />
+    <ActivityHeatmap />
 
     <WeeklyTrendChart v-if="statsData.weeklyData?.length > 1" :data="statsData.weeklyData" />
 

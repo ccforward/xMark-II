@@ -10,7 +10,10 @@
           <div class="top-tweet-header">
             <a :href="'https://x.com/' + tweet.authorHandle" target="_blank" class="top-tweet-author">@{{ tweet.authorHandle }}</a>
           </div>
-          <a :href="tweet.tweetUrl" target="_blank" class="top-tweet-text">{{ truncate(tweet.text, 160) }}</a>
+          <template v-if="tweet.text">
+            <a :href="tweet.tweetUrl" target="_blank" class="top-tweet-text">{{ truncate(tweet.text, 160) }}</a>
+          </template>
+          <a v-else :href="tweet.tweetUrl" target="_blank" class="top-tweet-text top-tweet-text-empty">View tweet →</a>
           <div v-if="tweet.mediaUrls.length" class="top-tweet-media">
             <div v-for="(url, j) in tweet.mediaUrls.slice(0, 4)" :key="j" class="top-tweet-media-item">
               <img :src="url" loading="lazy" />
@@ -20,17 +23,27 @@
           </div>
         </div>
         <span class="top-tweet-metric">{{ formatNum(tweet[metricKey]) }}</span>
+        <button class="top-tweet-delete" title="Delete" @click="handleDelete(tweet)"><Trash2 :size="15" /></button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-defineProps({
+import { Trash2 } from 'lucide-vue-next'
+
+const props = defineProps({
   title: { type: String, required: true },
   tweets: { type: Array, required: true },
   metricKey: { type: String, required: true },
 })
+
+const emit = defineEmits(['delete'])
+
+function handleDelete(tweet) {
+  if (!confirm('Delete this bookmark from local storage?')) return
+  emit('delete', tweet.id || tweet.tweetId)
+}
 
 function truncate(text, maxLen) {
   if (!text) return ''

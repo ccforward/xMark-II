@@ -16,7 +16,7 @@
       <StatsView v-if="currentView === 'stats'" :statsData="statsData" />
 
       <!-- Rankings View -->
-      <TopTweetsView v-else-if="currentView === 'rankings'" :statsData="statsData" />
+      <TopTweetsView v-else-if="currentView === 'rankings'" :statsData="statsData" @delete="handleDeleteFromRankings" />
 
       <!-- Settings View -->
       <SettingsView v-else-if="currentView === 'settings'" :aiConfig="aiConfig" @save-ai-config="handleSaveAIConfig" />
@@ -112,7 +112,9 @@
             @toggle-dropdown="toggleDropdown"
             @add-tag="addTag"
             @add-to-collection="addToCollection"
+            @remove-from-collection="removeFromCollection"
             @prompt-new-tag="promptNewTag"
+            @prompt-new-collection="promptNewCollection"
             @edit-note="openNoteEditor"
             @delete="handleDelete"
             @ai-process="handleAIProcess"
@@ -190,7 +192,7 @@ const {
   loadingMore, searchQuery, showAdvancedSearch, currentView,
   openDropdownId, dropdownType, filters, sortOrder,
   loadBookmarks, loadMore, loadTags, loadTagCounts, loadCollections,
-  addTag, removeTag, addToCollection,
+  addTag, removeTag, addToCollection, removeFromCollection,
   createTag, createCollection,
   deleteTag, renameTag,
   deleteBookmark, updateNote, toggleSelect, clearSelection,
@@ -344,6 +346,20 @@ async function promptNewTag(bookmarkId) {
   await addTag(bookmarkId, name)
 }
 
+// --- Collection prompt ---
+async function promptNewCollection(bookmarkId) {
+  const name = prompt('New collection name:')
+  if (!name) return
+  await createCollection(name, '')
+  // Find the newly created collection and add bookmark to it
+  const db = await getDB()
+  const allCols = await db.getAllCollections()
+  const newCol = allCols.find(c => c.name === name)
+  if (newCol) {
+    await addToCollection(newCol.id, bookmarkId)
+  }
+}
+
 // --- Collection ---
 async function handleCreateCollection(name, desc) {
   await createCollection(name, desc)
@@ -372,6 +388,19 @@ async function handleDelete(id) {
   if (!confirm('Delete this bookmark from local storage?')) return
   await deleteBookmark(id)
   await loadStats()
+}
+
+async function handleDeleteFromRankings(idOrTweetId) {
+  const db = await getDB()
+  // Try direct id first, then search by tweetId
+  let bookmark = await db.bookmarks.get(idOrTweetId)
+  if (!bookmark) {
+    bookmark = await db.bookmarks.where('tweetId').equals(String(idOrTweetId)).first()
+  }
+  if (!bookmark) return
+  await db.deleteBookmark(bookmark.id)
+  await loadStats()
+  await loadStatsData()
 }
 
 // --- Export ---

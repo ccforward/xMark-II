@@ -40,6 +40,11 @@ export function useSync() {
 
   function handleSyncMessage(message, onComplete) {
     if (message.type === 'SYNC_STATUS_UPDATE') {
+      // Ignore idle status - don't show "Ready" in the floating notification
+      if (message.state === 'idle') {
+        dismissStatus()
+        return
+      }
       syncState.value = message.state
       syncMessage.value = message.message
       if (message.state === 'completed') {

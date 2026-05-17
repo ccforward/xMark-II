@@ -131,6 +131,15 @@ export function useBookmarks() {
     const db = await getDB()
     await db.addBookmarkToCollection(collectionId, bookmarkId)
     openDropdownId.value = null
+    await loadCollections()
+  }
+
+  async function removeFromCollection(collectionId, bookmarkId) {
+    const db = await getDB()
+    await db.removeBookmarkFromCollection(collectionId, bookmarkId)
+    await loadCollections()
+    // If viewing this collection, reload to reflect removal
+    if (currentView.value === 'collection:' + collectionId) await loadBookmarks()
   }
 
   async function createCategory(name) {
@@ -232,6 +241,7 @@ export function useBookmarks() {
   async function bulkAddToCollection(colId) {
     const db = await getDB()
     for (const id of selectedIds.value) await db.addBookmarkToCollection(colId, id)
+    await loadCollections()
     clearSelection()
   }
 
@@ -271,6 +281,12 @@ export function useBookmarks() {
   function switchView(view) {
     currentView.value = view
     location.hash = view
+    // Clear search when switching views
+    searchQuery.value = ''
+    filters.author = ''
+    filters.dateFrom = ''
+    filters.dateTo = ''
+    filters.mediaType = ''
     if (view !== 'stats' && view !== 'rankings' && view !== 'settings') loadBookmarks()
   }
 
@@ -312,6 +328,7 @@ export function useBookmarks() {
     addTag,
     removeTag,
     addToCollection,
+    removeFromCollection,
     createCategory,
     createTag,
     createCollection,
