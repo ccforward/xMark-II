@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "X Bookmark Sync",
+  "name": "xMark II",
   "version": "1.0.0",
   "description": "Sync and manage your X/Twitter bookmarks locally",
   "permissions": [
@@ -33,9 +33,8 @@
       "world": "MAIN"
     }
   ],
-  "options_page": "options.html",
+  "options_page": "dashboard.html",
   "action": {
-    "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

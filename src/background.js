@@ -720,6 +720,14 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+// ============================================
+// Action icon click — open dashboard
+// ============================================
+
+chrome.action.onClicked.addListener(() => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') });
+});
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const linkUrl = info.linkUrl || '';
   // Extract tweet ID from URL like https://x.com/user/status/123456

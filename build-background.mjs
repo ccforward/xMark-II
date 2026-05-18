@@ -20,10 +20,6 @@ const distDir = resolve(import.meta.dirname, 'dist')
 cpSync(resolve(publicDir, 'content-inject.js'), resolve(distDir, 'content-inject.js'))
 cpSync(resolve(publicDir, 'content.js'), resolve(distDir, 'content.js'))
 
-// Popup
-cpSync(resolve(publicDir, 'popup.html'), resolve(distDir, 'popup.html'))
-cpSync(resolve(publicDir, 'popup.js'), resolve(distDir, 'popup.js'))
-
 // Icons
 cpSync(resolve(publicDir, 'icons'), resolve(distDir, 'icons'), { recursive: true })
 

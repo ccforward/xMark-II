@@ -12,12 +12,12 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        options: resolve(__dirname, 'src/options.html'),
+        dashboard: resolve(__dirname, 'src/dashboard.html'),
       },
       output: {
-        entryFileNames: 'options/[name].js',
-        chunkFileNames: 'options/chunks/[name]-[hash].js',
-        assetFileNames: 'options/assets/[name]-[hash][extname]',
+        entryFileNames: 'dashboard/[name].js',
+        chunkFileNames: 'dashboard/chunks/[name]-[hash].js',
+        assetFileNames: 'dashboard/assets/[name]-[hash][extname]',
       },
     },
   },
