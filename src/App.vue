@@ -136,13 +136,38 @@
     </main>
 
     <!-- Media Lightbox -->
-    <div v-if="lightbox.visible" class="lightbox-overlay" @click.self="closeLightbox">
+    <div v-if="lightbox.visible" class="lightbox-overlay" @click.self="closeLightbox" @wheel.prevent="handleLightboxWheel">
       <button class="lightbox-close" @click="closeLightbox">&times;</button>
-      <button v-if="lightbox.items.length > 1 && lightbox.index > 0" class="lightbox-nav lightbox-prev" @click="lightbox.index--">&lsaquo;</button>
-      <button v-if="lightbox.items.length > 1 && lightbox.index < lightbox.items.length - 1" class="lightbox-nav lightbox-next" @click="lightbox.index++">&rsaquo;</button>
+      <button v-if="lightbox.items.length > 1 && lightbox.index > 0" class="lightbox-nav lightbox-prev" @click="lightbox.index--; lightbox.scale = 1; lightbox.panX = 0; lightbox.panY = 0">&lsaquo;</button>
+      <button v-if="lightbox.items.length > 1 && lightbox.index < lightbox.items.length - 1" class="lightbox-nav lightbox-next" @click="lightbox.index++; lightbox.scale = 1; lightbox.panX = 0; lightbox.panY = 0">&rsaquo;</button>
+      <!-- Toolbar -->
+      <div class="lightbox-toolbar">
+        <button class="lightbox-tool-btn" @click="lightbox.scale = Math.min(lightbox.scale + 0.1, 5)" title="Zoom in">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        </button>
+        <button class="lightbox-tool-btn" @click="lightbox.scale = Math.max(lightbox.scale - 0.1, 0.25)" title="Zoom out">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        </button>
+        <button class="lightbox-tool-btn" @click="lightbox.scale = 1; lightbox.panX = 0; lightbox.panY = 0" title="Fit to screen">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+        <span class="lightbox-zoom-label">{{ Math.round(lightbox.scale * 100) }}%</span>
+        <button class="lightbox-tool-btn lightbox-download-btn" @click="downloadImage" title="Download">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </button>
+      </div>
       <div class="lightbox-content">
         <video v-if="lightbox.items[lightbox.index]?.type === 'video' || lightbox.items[lightbox.index]?.type === 'animated_gif'" :src="lightbox.items[lightbox.index].videoUrl" controls autoplay :loop="lightbox.items[lightbox.index]?.type === 'animated_gif'" class="lightbox-video"></video>
-        <img v-else :src="lightbox.items[lightbox.index]?.url" class="lightbox-image" />
+        <img v-else
+          :src="lightbox.items[lightbox.index]?.url"
+          class="lightbox-image"
+          :class="{ 'lightbox-draggable': lightbox.scale > 1 }"
+          :style="{ transform: `scale(${lightbox.scale}) translate(${lightbox.panX}px, ${lightbox.panY}px)`, transition: lightbox.isDragging ? 'none' : 'transform 0.2s ease' }"
+          @mousedown="startDrag"
+          @mousemove="doDrag"
+          @mouseup="endDrag"
+          @mouseleave="endDrag"
+        />
       </div>
     </div>
 
@@ -230,7 +255,7 @@ const editingBookmarkId = ref(null)
 const editingNote = ref('')
 
 // Lightbox
-const lightbox = reactive({ visible: false, items: [], index: 0 })
+const lightbox = reactive({ visible: false, items: [], index: 0, scale: 1, panX: 0, panY: 0, isDragging: false, dragStartX: 0, dragStartY: 0 })
 
 // --- Computed ---
 const viewTitle = computed(() => {
@@ -322,7 +347,62 @@ function openMedia(bm, index) {
   lightbox.visible = true
 }
 
-function closeLightbox() { lightbox.visible = false }
+function closeLightbox() { lightbox.visible = false; lightbox.scale = 1; lightbox.panX = 0; lightbox.panY = 0 }
+
+function handleLightboxWheel(e) {
+  const delta = e.deltaY < 0 ? 0.05 : -0.05
+  lightbox.scale = Math.min(Math.max(lightbox.scale + delta, 0.25), 5)
+}
+
+function startDrag(e) {
+  if (lightbox.scale <= 1) return
+  lightbox.isDragging = true
+  lightbox.dragStartX = e.clientX - lightbox.panX * lightbox.scale
+  lightbox.dragStartY = e.clientY - lightbox.panY * lightbox.scale
+  e.preventDefault()
+}
+
+function doDrag(e) {
+  if (!lightbox.isDragging) return
+  lightbox.panX = (e.clientX - lightbox.dragStartX) / lightbox.scale
+  lightbox.panY = (e.clientY - lightbox.dragStartY) / lightbox.scale
+}
+
+function endDrag() {
+  lightbox.isDragging = false
+}
+
+async function downloadImage() {
+  const item = lightbox.items[lightbox.index]
+  if (!item?.url) return
+  try {
+    const res = await fetch(item.url)
+    const blob = await res.blob()
+    const name = lightboxDownloadName.value
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(a.href)
+  } catch {
+    // Fallback: open in new tab
+    window.open(item.url, '_blank')
+  }
+}
+
+const currentLightboxUrl = computed(() => {
+  const item = lightbox.items[lightbox.index]
+  return item?.url || ''
+})
+
+const lightboxDownloadName = computed(() => {
+  const item = lightbox.items[lightbox.index]
+  if (!item?.url) return 'image.jpg'
+  const parts = item.url.split('/')
+  return parts[parts.length - 1]?.split('?')[0] || 'image.jpg'
+})
 
 // --- Notes ---
 function openNoteEditor(bm) {

@@ -21,12 +21,18 @@
       </div>
 
       <div class="bookmark-text-link" @click="handleTextClick">
-        <div v-if="bookmark.noteText" class="bookmark-text note-text">
-          <span class="note-badge">Note</span>
-          <span v-html="renderTweetText(bookmark.noteText)"></span>
+        <div class="text-wrapper" :class="{ 'text-expanded': isTextLong && textExpanded }">
+          <div v-if="bookmark.noteText" class="bookmark-text note-text" :class="{ 'text-collapsed': isTextLong && !textExpanded }" :style="!textExpanded && isTextLong ? textStyle : {}">
+            <span class="note-badge">Note</span>
+            <span v-html="renderTweetText(bookmark.noteText)"></span>
+          </div>
+          <div v-else-if="bookmark.text" class="bookmark-text" :class="{ 'text-collapsed': isTextLong && !textExpanded }" :style="!textExpanded && isTextLong ? textStyle : {}" v-html="renderTweetText(bookmark.text)"></div>
+          <div v-else-if="!bookmark.article" class="bookmark-text empty-text">[No text content]</div>
+          <button v-if="isTextLong" class="text-expand-btn" @click.stop="textExpanded = !textExpanded">
+            <ChevronDown :size="14" :class="{ rotated: textExpanded }" />
+            {{ textExpanded ? 'Show less' : 'Show more' }}
+          </button>
         </div>
-        <div v-else-if="bookmark.text" class="bookmark-text" v-html="renderTweetText(bookmark.text)"></div>
-        <div v-else-if="!bookmark.article" class="bookmark-text empty-text">[No text content]</div>
       </div>
 
       <!-- Article Card -->
@@ -81,6 +87,7 @@
 
       <!-- Tags -->
       <div v-if="bookmark.tags?.length" class="bookmark-tags">
+        <Hash :size="13" class="section-icon" />
         <span v-for="t in bookmark.tags" :key="t" class="tag-badge" :style="getTagStyle(t)">
           {{ t }}
           <button class="tag-remove" @click="$emit('remove-tag', bookmark.id, t)">&times;</button>
@@ -89,8 +96,8 @@
 
       <!-- Collections -->
       <div v-if="bookmarkCollections.length" class="bookmark-collections">
+        <Library :size="13" class="section-icon" />
         <span v-for="col in bookmarkCollections" :key="col.id" class="collection-badge">
-          <Library :size="12" />
           {{ col.name }}
           <button class="tag-remove" @click="$emit('remove-from-collection', col.id, bookmark.id)">&times;</button>
         </span>
@@ -186,9 +193,29 @@ const emit = defineEmits([
 ])
 
 const aiExpanded = ref(false)
+const textExpanded = ref(false)
 const tagDropdownRef = ref(null)
 const colDropdownRef = ref(null)
 const dropdownUp = ref(false)
+
+const TEXT_COLLAPSE_LINES = 6
+
+const isTextLong = computed(() => {
+  const text = props.bookmark.noteText || props.bookmark.text || ''
+  // Estimate: at 16px font + 1.6 line-height, each line is ~25.6px
+  // ~280 chars roughly fills 6 lines at typical width
+  return text.length > 280
+})
+
+const textStyle = computed(() => {
+  if (isTextLong.value && !textExpanded.value) {
+    return {
+      maxHeight: `${TEXT_COLLAPSE_LINES * 1.6 * 16}px`,
+      overflow: 'hidden',
+    }
+  }
+  return {}
+})
 
 const bookmarkCollections = computed(() => {
   return (props.collections || []).filter(col => (col.bookmarkIds || []).includes(props.bookmark.id))

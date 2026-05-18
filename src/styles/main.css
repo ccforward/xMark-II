@@ -358,12 +358,45 @@ a:hover {
 }
 .bookmark-text-link:hover { text-decoration: none; }
 
+/* Text wrapper with sticky expand button */
+.text-wrapper {
+  position: relative;
+}
+.text-wrapper.text-expanded .bookmark-text.text-collapsed {
+  max-height: none;
+  overflow: visible;
+}
+.text-wrapper.text-expanded .text-expand-btn {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-primary);
+  z-index: 1;
+}
+.text-wrapper.text-expanded .text-expand-btn:hover {
+  background: var(--accent) !important;
+}
+
 .bookmark-text {
   font-size: 16px;
   line-height: 1.6;
   word-break: break-word;
   white-space: pre-wrap;
   color: var(--text);
+  transition: max-height 0.3s ease;
+}
+.bookmark-text.text-collapsed {
+  position: relative;
+  overflow: hidden;
+}
+.bookmark-text.text-collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to bottom, transparent, var(--bg-primary));
+  pointer-events: none;
 }
 .bookmark-text .tweet-inline-link {
   color: var(--accent);
@@ -394,6 +427,32 @@ a:hover {
   vertical-align: middle;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+}
+
+/* Text expand button */
+.text-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.text-expand-btn:hover {
+  background: var(--accent);
+  color: white;
+}
+.text-expand-btn .lucide-chevron-down {
+  transition: transform 0.25s ease;
+}
+.text-expand-btn .lucide-chevron-down.rotated {
+  transform: rotate(180deg);
 }
 
 /* Media grid */
@@ -853,12 +912,63 @@ a:hover {
   object-fit: contain;
   border-radius: var(--radius-xs);
 }
+.lightbox-image.lightbox-draggable {
+  cursor: grab;
+}
+.lightbox-image.lightbox-draggable:active {
+  cursor: grabbing;
+}
 
 .lightbox-video {
   max-width: 92vw;
   max-height: 92vh;
   border-radius: var(--radius-xs);
   outline: none;
+}
+
+/* Lightbox toolbar */
+.lightbox-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+  padding: 6px 10px;
+  z-index: 2001;
+}
+.lightbox-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  text-decoration: none;
+}
+.lightbox-tool-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+.lightbox-zoom-label {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 42px;
+  text-align: center;
+  user-select: none;
+}
+.lightbox-download-btn {
+  margin-left: 4px;
 }
 
 /* Load more / infinite scroll */
@@ -1102,7 +1212,13 @@ textarea.form-input { min-height: 80px; resize: vertical; font-family: inherit; 
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: 10px;
+  align-items: center;
+}
+.bookmark-tags .section-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  opacity: 0.6;
 }
 .tag-badge {
   display: inline-flex;
@@ -1120,7 +1236,15 @@ textarea.form-input { min-height: 80px; resize: vertical; font-family: inherit; 
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  align-items: center;
+}
+.bookmark-collections .section-icon {
+  color: #7856ff;
+  flex-shrink: 0;
+  opacity: 0.6;
 }
 .collection-badge {
   display: inline-flex;
