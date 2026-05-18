@@ -5,32 +5,52 @@ import Dexie from 'dexie';
 const DB_NAME = 'XBookmarkSync';
 const DB_VERSION = 4;
 
+// Sanitize array to ensure all elements are strings (prevents DataCloneError)
+function sanitizeStringArray(arr) {
+  if (!Array.isArray(arr)) return []
+  return arr.filter(u => typeof u === 'string')
+}
+
 // Convert exported JSON back to internal bookmark format
 function mapImportItem(item) {
   const stats = item.stats || {}
+  // Handle categories: could be array of strings or array of objects { name: 'tag' }
+  let cats = item.categories || []
+  if (!Array.isArray(cats)) cats = []
+  else cats = cats.map(c => typeof c === 'string' ? c : (c?.name != null ? String(c.name) : '')).filter(Boolean)
+
+  // Handle tags: ensure it's an array of strings
+  let tags = item.tags || []
+  if (!Array.isArray(tags)) tags = []
+  else tags = tags.map(t => typeof t === 'string' ? t : String(t)).filter(Boolean)
+
   return {
-    tweetId: item.tweetId,
-    text: item.text || '',
-    fullText: item.text || '',
-    noteText: item.noteText || null,
-    authorName: item.author?.name || '',
-    authorHandle: item.author?.handle || '',
-    authorAvatarUrl: item.author?.avatar || '',
-    tweetUrl: item.url || '',
-    mediaUrls: item.mediaUrls || [],
+    tweetId: String(item.tweetId || ''),
+    text: typeof item.text === 'string' ? item.text : '',
+    fullText: typeof item.text === 'string' ? item.text : '',
+    noteText: typeof item.noteText === 'string' ? item.noteText : null,
+    authorName: typeof item.author?.name === 'string' ? item.author.name : '',
+    authorHandle: typeof item.author?.handle === 'string' ? item.author.handle : '',
+    authorAvatarUrl: typeof item.author?.avatar === 'string' ? item.author.avatar : '',
+    tweetUrl: typeof item.url === 'string' ? item.url : '',
+    mediaUrls: sanitizeStringArray(item.mediaUrls),
     mediaTypes: [],
-    videoUrls: item.videoUrls || [],
+    videoUrls: sanitizeStringArray(item.videoUrls),
     videoThumbnails: [],
-    urls: [],
-    createdAt: item.createdAt,
-    categories: item.categories || [],
-    tags: item.tags || [],
-    notes: item.notes || '',
-    likeCount: stats.likes || 0,
-    retweetCount: stats.retweets || 0,
-    replyCount: stats.replies || 0,
-    bookmarkCount: stats.bookmarks || 0,
-    viewCount: stats.views || 0,
+    urls: sanitizeStringArray(item.urls),
+    createdAt: typeof item.createdAt === 'string' ? item.createdAt : new Date().toISOString(),
+    bookmarkedAt: typeof item.bookmarkedAt === 'string' ? item.bookmarkedAt : null,
+    categories: cats,
+    tags: tags,
+    notes: typeof item.notes === 'string' ? item.notes : '',
+    likeCount: Number(stats.likes) || 0,
+    retweetCount: Number(stats.retweets) || 0,
+    replyCount: Number(stats.replies) || 0,
+    bookmarkCount: Number(stats.bookmarks) || 0,
+    viewCount: Number(stats.views) || 0,
+    language: typeof item.language === 'string' ? item.language : null,
+    isRetweet: !!item.isRetweet,
+    isNote: !!item.isNote,
     ai_processed: false,
     ai_processed_at: null,
     ai_summary: null,
@@ -127,8 +147,8 @@ class BookmarkDB extends Dexie {
   }
 
   async getBookmarks({ offset = 0, limit = 50, category = null, search = null, sort = 'createdAt', order = 'desc', tag = null, collectionId = null, dateFrom = null, dateTo = null, author = null, hasMedia = null, hasVideo = null } = {}) {
-    // Fetch all records first, then apply filters and sorting in JS
-    let results = await this.bookmarks.toArray();
+    // Fetch all records with consistent order (by primary key) for stable sorting
+    let results = await this.bookmarks.orderBy('id').toArray();
 
     // Apply category filter
     if (category && category !== 'all') {
@@ -202,7 +222,10 @@ class BookmarkDB extends Dexie {
       }
       // Compare as strings (ISO dates work with string comparison)
       const cmp = valA < valB ? -1 : valA > valB ? 1 : 0;
-      return order === 'desc' ? -cmp : cmp;
+      if (cmp !== 0) return order === 'desc' ? -cmp : cmp;
+      // Tiebreaker: use id for stable ordering
+      const idCmp = (a.id || 0) - (b.id || 0);
+      return order === 'desc' ? -idCmp : idCmp;
     });
 
     const total = results.length;
@@ -372,6 +395,9 @@ class BookmarkDB extends Dexie {
       mediaUrls: b.mediaUrls || [],
       videoUrls: b.videoUrls || [],
       createdAt: b.createdAt,
+      bookmarkedAt: b.bookmarkedAt || null,
+      tags: b.tags || [],
+      language: b.language || null,
       ...(includeCategories ? { categories: b.categories || [], notes: b.notes || '' } : {}),
       stats: { likes: b.likeCount || 0, retweets: b.retweetCount || 0, replies: b.replyCount || 0, bookmarks: b.bookmarkCount || 0, views: b.viewCount || 0 }
     }));
@@ -387,8 +413,9 @@ class BookmarkDB extends Dexie {
       const batch = jsonData.slice(i, i + batchSize)
       for (const item of batch) {
         if (!item.tweetId) { imported.skipped++; continue }
+        const tweetIdStr = String(item.tweetId)
 
-        const existing = await this.bookmarks.where('tweetId').equals(item.tweetId).first()
+        const existing = await this.bookmarks.where('tweetId').equals(tweetIdStr).first()
         if (existing) {
           if (onConflict === 'skip') { imported.skipped++; continue }
           // onConflict === 'overwrite': update existing
@@ -397,24 +424,36 @@ class BookmarkDB extends Dexie {
           imported.bookmarks++
         } else {
           const bookmarkData = mapImportItem(item)
-          await this.bookmarks.add(bookmarkData)
+          try {
+            await this.bookmarks.add(bookmarkData)
+          } catch (e) {
+            if (e.name === 'DataCloneError') {
+              // Find which field is problematic
+              const badFields = Object.entries(bookmarkData)
+                .filter(([k, v]) => Array.isArray(v) || (typeof v === 'object' && v !== null))
+                .map(([k, v]) => k)
+              throw new Error(`DataCloneError on bookmark tweetId="${item.tweetId}". Non-cloneable data in fields: ${badFields.join(', ')}. Original error: ${e.message}`)
+            }
+            throw e
+          }
           imported.bookmarks++
         }
 
         // Import categories
         if (item.categories?.length) {
           for (const catName of item.categories) {
-            const exists = await this.categories.where('name').equals(catName).first()
-            if (!exists) { await this.categories.add({ name: catName, createdAt: new Date().toISOString() }); imported.categories++ }
-            // Link is handled in mapImportItem via categories array
+            const nameStr = typeof catName === 'string' ? catName : (catName.name || String(catName))
+            const exists = await this.categories.where('name').equals(nameStr).first()
+            if (!exists) { await this.categories.add({ name: nameStr, createdAt: new Date().toISOString() }); imported.categories++ }
           }
         }
 
         // Import tags
         if (item.tags?.length) {
           for (const tagName of item.tags) {
-            const exists = await this.tags.where('name').equals(tagName).first()
-            if (!exists) { await this.tags.add({ name: tagName, createdAt: new Date().toISOString() }); imported.tags++ }
+            const tagStr = typeof tagName === 'string' ? tagName : String(tagName)
+            const exists = await this.tags.where('name').equals(tagStr).first()
+            if (!exists) { await this.tags.add({ name: tagStr, createdAt: new Date().toISOString() }); imported.tags++ }
           }
         }
       }

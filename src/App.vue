@@ -105,7 +105,7 @@
             :collections="collections"
             :openDropdownId="openDropdownId"
             :dropdownType="dropdownType"
-            :aiProcessingThis="aiProcessingId === bm.id"
+            :aiProcessingThis="aiProcessingIds.has(bm.id)"
             @toggle-select="toggleSelect"
             @open-media="openMedia"
             @remove-tag="removeTag"
@@ -208,7 +208,7 @@ const { statsData, loadStatsData } = useStats()
 
 // --- AI ---
 const { aiConfig, aiProcessing, loadAIConfig, saveAIConfig, processSingleBookmark } = useAI()
-const aiProcessingId = ref(null)
+const aiProcessingIds = ref(new Set())
 
 // --- State ---
 const stats = reactive({ bookmarkCount: 0 })
@@ -470,7 +470,7 @@ async function handleShare(format) {
 
 // --- AI ---
 async function handleAIProcess(bookmarkId) {
-  aiProcessingId.value = bookmarkId
+  aiProcessingIds.value.add(bookmarkId)
   try {
     await processSingleBookmark(bookmarkId)
     await loadBookmarks()
@@ -480,7 +480,8 @@ async function handleAIProcess(bookmarkId) {
   } catch (e) {
     console.error('[AI] Process failed:', e.message)
   } finally {
-    aiProcessingId.value = null
+    aiProcessingIds.value.delete(bookmarkId)
+    aiProcessingIds.value = new Set(aiProcessingIds.value) // trigger reactivity
   }
 }
 
