@@ -23,7 +23,6 @@
       <div class="bookmark-text-link" @click="handleTextClick">
         <div class="text-wrapper" :class="{ 'text-expanded': isTextLong && textExpanded }">
           <div v-if="bookmark.noteText" class="bookmark-text note-text" :class="{ 'text-collapsed': isTextLong && !textExpanded }" :style="!textExpanded && isTextLong ? textStyle : {}">
-            <span class="note-badge">Note</span>
             <span v-html="renderTweetText(bookmark.noteText)"></span>
           </div>
           <div v-else-if="bookmark.text" class="bookmark-text" :class="{ 'text-collapsed': isTextLong && !textExpanded }" :style="!textExpanded && isTextLong ? textStyle : {}" v-html="renderTweetText(bookmark.text)"></div>
