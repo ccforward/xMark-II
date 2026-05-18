@@ -33,7 +33,6 @@
             </div>
           </div>
           <div class="heatmap-footer">
-            <a href="https://x.com/i/bookmarks" target="_blank" class="heatmap-learn-more">Learn how we count bookmarks</a>
             <div class="heatmap-legend">
               <span>Less</span>
               <div class="heatmap-cell level-0"></div>
@@ -79,7 +78,7 @@ onMounted(async () => {
 const availableYears = computed(() => {
   const years = new Set()
   for (const b of allBookmarks.value) {
-    const d = new Date(b.bookmarkedAt || b.createdAt)
+    const d = new Date(b.createdAt)
     if (!isNaN(d.getTime())) years.add(d.getFullYear())
   }
   const sorted = [...years].sort((a, b) => b - a)
@@ -90,7 +89,7 @@ const availableYears = computed(() => {
 const dayCountMap = computed(() => {
   const map = {}
   for (const b of allBookmarks.value) {
-    const d = new Date(b.bookmarkedAt || b.createdAt)
+    const d = new Date(b.createdAt)
     if (!isNaN(d.getTime())) {
       const key = d.toISOString().split('T')[0]
       map[key] = (map[key] || 0) + 1
