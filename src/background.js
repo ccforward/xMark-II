@@ -553,6 +553,8 @@ async function syncBookmarks({ fullSync = false } = {}) {
     const existingTweetIds = new Set((await db.bookmarks.toArray()).map(b => b.tweetId));
     let shouldStop = false;
     const syncStartTime = new Date().toISOString();
+    const syncBaseTime = Date.now();
+    let globalSyncIndex = 0;
 
     // Backfill bookmarkedAt for existing records that lack it
     try {
@@ -621,20 +623,18 @@ async function syncBookmarks({ fullSync = false } = {}) {
       if (bookmarks.length === 0) { shouldStop = true; break; }
 
       // Calculate bookmarkedAt for new bookmarks in this page
-      // X returns bookmarks newest-first, so the first one should have the latest timestamp
-      // Use a staggered approach: each new bookmark gets a slightly earlier timestamp
-      // This ensures proper sorting: newest synced bookmarks appear at the top
-      let syncIndex = 0;
+      // X returns bookmarks newest-first, so the first one should have the latest timestamp.
+      // Use a single global base time and index across all pages so that the API order
+      // is preserved regardless of when each page is processed.
       for (const bm of bookmarks) {
         if (!fullSync && existingTweetIds.has(bm.tweetId)) { shouldStop = true; break; }
         if (!existingTweetIds.has(bm.tweetId)) {
-          // Subtract syncIndex seconds from now, so first bookmark has the latest time
-          const bmTime = new Date(Date.now() - syncIndex * 1000).toISOString();
+          const bmTime = new Date(syncBaseTime - globalSyncIndex * 1000).toISOString();
           bm.bookmarkedAt = bmTime;
           allBookmarks.push(bm);
           existingTweetIds.add(bm.tweetId);
           newCount++;
-          syncIndex++;
+          globalSyncIndex++;
         }
       }
 
