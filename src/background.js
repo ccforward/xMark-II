@@ -234,6 +234,8 @@ async function fetchBookmarksPage(tabId, cursor = null) {
 // ============================================
 
 let _loggedQuotedTweet = false;
+let _loggedTweetData = false;
+let _loggedBookmarkResponse = false;
 
 function parseTweetData(tweetResult) {
   if (!tweetResult) return null;
@@ -262,6 +264,15 @@ function parseTweetData(tweetResult) {
 
   // Note tweet / long-form article
   const noteTweet = tweetResult.note_tweet?.note_tweet_results?.result;
+
+  // Debug: log first tweet's raw data to inspect sync JSON format
+  if (!_loggedTweetData) {
+    _loggedTweetData = true;
+    console.log('[XBS] Raw tweetResult sample:', JSON.stringify(tweetResult, null, 2));
+    console.log('[XBS] tweet.full_text:', text);
+    console.log('[XBS] tweet.entities?.urls:', JSON.stringify(tweet.entities?.urls));
+    console.log('[XBS] noteTweet:', JSON.stringify(noteTweet));
+  }
   if (noteTweet) {
     noteText = noteTweet.text || '';
     // Note tweets have richer entities
@@ -338,20 +349,9 @@ function parseTweetData(tweetResult) {
 
   const urls = externalUrls.map(u => u.expanded_url || u.url)
 
-  // Replace each external t.co link in cleanText with a clickable <a> tag
-  // pointing to the expanded_url, so the stored text has inline links
-  let textWithLinks = cleanText
-  for (const u of externalUrls) {
-    if (u.url) {
-      const escaped = u.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const expanded = (u.expanded_url || u.url).replace(/"/g, '&quot;')
-      textWithLinks = textWithLinks.replace(new RegExp(escaped, 'g'), `<a href="${expanded}" target="_blank" class="tweet-inline-link">${u.url}</a>`)
-    }
-  };
-
   return {
     tweetId: String(tweetId),
-    text: textWithLinks,
+    text: cleanText,
     fullText: text,
     noteText,
     authorName,
@@ -428,6 +428,15 @@ function parseBookmarksResponse(data) {
 
     if (instructions.length === 0) {
       console.warn('[XBS] No instructions found in response. Keys:', JSON.stringify(Object.keys(data?.data || {})));
+    }
+
+    // Debug: log raw first entry structure once per session
+    if (!_loggedBookmarkResponse) {
+      _loggedBookmarkResponse = true;
+      const firstEntry = instructions[0]?.entries?.find(e => !e.entryId?.startsWith('cursor-'));
+      if (firstEntry) {
+        console.log('[XBS] Raw first bookmark entry:', JSON.stringify(firstEntry, null, 2));
+      }
     }
 
     for (const instruction of instructions) {

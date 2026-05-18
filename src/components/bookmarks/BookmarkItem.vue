@@ -267,15 +267,10 @@ function formatDate(dateStr) {
 
 function renderTweetText(text) {
   if (!text) return ''
-  // If text already contains HTML links (from new sync format), use as-is
-  if (text.includes('<a href=')) return text
-  // Decode HTML entities first (for old plain-text bookmarks)
+  // Decode HTML entities first (e.g. &amp; → &)
   const el = document.createElement('textarea')
   el.innerHTML = text
-  let decoded = el.value
-  // Make t.co URLs clickable
-  decoded = decoded.replace(/(https?:\/\/t\.co\/\w+)/g, '<a href="$1" target="_blank" class="tweet-inline-link" onclick="event.stopPropagation()">$1</a>')
-  return decoded
+  return el.value
 }
 
 function handleTextClick(e) {
