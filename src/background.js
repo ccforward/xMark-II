@@ -333,13 +333,25 @@ function parseTweetData(tweetResult) {
   cleanText = cleanText.trim();
 
   // External URLs list (expanded, excluding media t.co links)
-  const urls = (tweet.entities?.urls || [])
+  const externalUrls = (tweet.entities?.urls || [])
     .filter(u => !mediaShortUrls.has(u.url))
-    .map(u => u.expanded_url || u.url);
+
+  const urls = externalUrls.map(u => u.expanded_url || u.url)
+
+  // Replace each external t.co link in cleanText with a clickable <a> tag
+  // pointing to the expanded_url, so the stored text has inline links
+  let textWithLinks = cleanText
+  for (const u of externalUrls) {
+    if (u.url) {
+      const escaped = u.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const expanded = (u.expanded_url || u.url).replace(/"/g, '&quot;')
+      textWithLinks = textWithLinks.replace(new RegExp(escaped, 'g'), `<a href="${expanded}" target="_blank" class="tweet-inline-link">${u.url}</a>`)
+    }
+  };
 
   return {
     tweetId: String(tweetId),
-    text: cleanText,
+    text: textWithLinks,
     fullText: text,
     noteText,
     authorName,
